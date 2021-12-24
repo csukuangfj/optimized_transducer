@@ -7,8 +7,8 @@
 namespace ot {
 
 // Column indexes for the log_prob tensor.
-// column 0 is the log-prob for blanks
-// column 0 is the log-prob for symbols
+// Column 0 is the log-prob for blanks
+// Column 1 is the log-prob for symbols
 static constexpr int32_t kBlankCol = 0;
 static constexpr int32_t kSymCol = 1;
 
@@ -110,6 +110,7 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
 
   const float *p_log_probs = log_probs.data_ptr<float>();
   float *p_alpha = alpha.data_ptr<float>();
+
   float *p_total_scores = total_scores.data_ptr<float>();
 
   for (int32_t b = 0; b != batch_size; ++b) {
@@ -170,6 +171,8 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
 
     p_alpha += T * U_p1;
     p_log_probs += T * U_p1 * 2;
+
+    // total_scores =  alpha(T-1, U-1) + log_probs(T-1, U-1).blank
     p_total_scores[b] = p_alpha[-1] + (p_log_probs - 2)[kBlankCol];
   }
 
@@ -225,6 +228,12 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
   TORCH_CHECK((0 <= blank && blank < logits.size(1)),
               "blank vs logits.size(1) is ", blank, " vs ", logits.size(1),
               ". Expect 0 <= blank < logits.size(1)");
+
+  TORCH_CHECK((targets.size(1) == target_lengths.max().item<int32_t>()),
+              "targets.size(1) should be equal to target_lengths.max().",
+              "But targets.size(1) is ", targets.size(1),
+              ", and target_lengths.max() is ",
+              target_lengths.max().item<int32_t>());
 
   // The denominator for the log-softmax.
   // Note that it is positive at present.
