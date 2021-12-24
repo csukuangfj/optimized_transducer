@@ -28,7 +28,7 @@ namespace ot {
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
     const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
-    int32_t blank, double clamp);
+    int32_t blank, double clamp = 0);
 
 }  // namespace ot
 
