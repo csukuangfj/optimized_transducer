@@ -4,14 +4,15 @@
 
 import optimized_transducer
 import torch
+import torchaudio
 
 
 def test_compute_transducer_loss():
     T1 = 2
     T2 = 3
 
-    U1 = 4
-    U2 = 3
+    U1 = 3
+    U2 = 5
 
     V = 3
 
@@ -19,10 +20,15 @@ def test_compute_transducer_loss():
 
     device = torch.device("cpu")
 
-    logits = torch.rand(sum_TU, V, device=device)
+    torch_logits = torch.rand(2, max(T1, T2), max(U1, U2), V, device=device)
+
+    logits0 = torch_logits[0, :T1, :U1, :].reshape(-1, V)
+
+    logits1 = torch_logits[1, :T2, :U2, :].reshape(-1, V)
+    logits = torch.cat((logits0, logits1))
 
     targets = torch.randint(
-        low=1, high=V, size=(2, max(T1, T2)), dtype=torch.int32, device=device
+        low=1, high=V, size=(2, max(U1, U2) - 1), dtype=torch.int32, device=device
     )
 
     logit_lengths = torch.tensor([T1, T2], dtype=torch.int32, device=device)
@@ -36,8 +42,27 @@ def test_compute_transducer_loss():
         target_lengths=target_lengths,
         blank=0,
     )
-    print(targets)
-    print(logits.log_softmax(-1))
+    print(
+        torch.ops.torchaudio.rnnt_loss_alphas(
+            logits=torch_logits,
+            targets=targets,
+            logit_lengths=logit_lengths,
+            target_lengths=target_lengths,
+            blank=0,
+            clamp=0,
+        )
+    )
+
+    print(
+        torch.ops.torchaudio.rnnt_loss(
+            logits=torch_logits,
+            targets=targets,
+            logit_lengths=logit_lengths,
+            target_lengths=target_lengths,
+            blank=0,
+            clamp=0,
+        )
+    )
 
 
 def main():
