@@ -179,6 +179,71 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
   return {alpha, total_scores};
 }
 
+static std::pair<torch::Tensor, torch::Tensor> ComputeBeta(
+    const torch::Tensor &log_probs, const torch::Tensor &logit_lengths,
+    const torch::Tensor &target_lengths) {
+  int32_t batch_size = logit_lengths.size(0);
+  torch::Tensor beta = torch::empty({log_probs.size(0)}, log_probs.options());
+  torch::Tensor total_scores = torch::empty({batch_size}, log_probs.options());
+
+  torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
+                                         logit_lengths.numel());
+
+  torch::ArrayRef<int32_t> target_len_arr(target_lengths.data_ptr<int32_t>(),
+                                          target_lengths.numel());
+
+  const float *p_log_probs = log_probs.data_ptr<float>();
+  float *p_beta = beta.data_ptr<float>();
+  float *p_total_scores = total_scores.data_ptr<float>();
+  for (int32_t b = 0; b != batch_size; ++b) {
+    int32_t T = logit_len_arr[b];
+
+    // p1 means plus one
+    // We need to plus one since it is prepended with a blank
+    int32_t U_p1 = target_len_arr[b] + 1;
+    float *p_beta_t = p_beta + T * U_p1;
+    const float *p_log_probs_t = p_log_probs + T * U_p1 * 2;
+    p_beta_t[-1] = (p_log_probs_t - 2)[kBlankCol];
+
+    // when u = U_p1 - 1,
+    // beta(t, U_p1-1) = beta(t+1, U_p1-1) + lop_probs(t, U_p-1).blank
+    for (int32_t t = T - 2; t >= 0; --t) {
+      p_beta_t = p_beta + (t + 1) * U_p1 - 1;
+      float *p_beta_t_p1 = p_beta_t + U_p1;
+      p_log_probs_t = p_log_probs + (t + 1) * U_p1 * 2 - 2;
+
+      *p_beta_t = *p_beta_t_p1 + p_log_probs_t[kBlankCol];
+    }
+    // when t = T - 1,
+    // beta(T-1 u) =  beta(T-1, u+1) + log_probs(T-1, u).symbol
+    float *p_beta_u_p1 = p_beta + T * U_p1 - 1;
+    float *p_beta_u = p_beta_u_p1 - 1;
+    const float *p_log_probs_u = p_log_probs + T * U_p1 * 2 - 4;
+
+    for (int32_t u = U_p1 - 2; u >= 0;
+         --u, --p_beta_u, --p_beta_u_p1, p_log_probs_u -= 2) {
+      *p_beta_u = *p_beta_u_p1 + p_log_probs_u[kSymCol];
+    }
+
+    for (int32_t t = T - 2; t >= 0; --t) {
+      p_beta_t = p_beta + t * U_p1;
+      float *p_beta_t_p1 = p_beta_t + U_p1;
+      p_log_probs_t = p_log_probs + (t + 1) * U_p1 * 2 - 4;
+      for (int32_t u = U_p1 - 2; u >= 0; --u, p_log_probs_t -= 2) {
+        // beta(t, u) = log_sum_exp(beta(t+1,u) + log_probs(t, u).blank,
+        //                           beta(t, u+1) + log_probs(t, u).symbol)
+        p_beta_t[u] = LogSumExp(p_beta_t_p1[u] + p_log_probs_t[kBlankCol],
+                                p_beta_t[u + 1] + p_log_probs_t[kSymCol]);
+      }
+    }
+    // total_scores =  beta(0, 0)
+    p_total_scores[b] = p_beta[0];
+    p_beta += T * U_p1;
+    p_log_probs += T * U_p1 * 2;
+  }
+  return {beta, total_scores};
+}
+
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
     const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
@@ -243,10 +308,16 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
       logits, denominator, targets, logit_lengths, target_lengths, blank);
 
   torch::Tensor alpha;
+  torch::Tensor beta;
   torch::Tensor total_scores;
   std::tie(alpha, total_scores) =
       ComputeAlpha(log_probs, logit_lengths, target_lengths);
-  std::cout << alpha << "\n";
+  // std::cout << alpha << "\n";
+  std::cout << total_scores << "\n";
+
+  std::tie(beta, total_scores) =
+      ComputeBeta(log_probs, logit_lengths, target_lengths);
+  std::cout << "beta: " << beta << "\n";
   std::cout << total_scores << "\n";
   return {};
 }
