@@ -8,4 +8,4 @@ to reduce the memory consumption for computing transducer loss.
 
 During the implementation, we use [torchaudio](https://github.com/pytorch/audio) as a reference.
 We ensure that the transducer loss computed using this project is identical to the one computed
-using torchaudio when given the same inputs.
+using torchaudio when giving the same inputs.
