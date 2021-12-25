@@ -19,7 +19,6 @@ namespace ot {
                        acoustic frames from the encoder.
   @param target_lengths A 1-D tensor of shape (N, ) containing the input
                         sequence length of each utterance for the decoder.
-  @param clamp If positive, limit the gradient to the range [-clamp, clamp].
   @return Return a pair containing
           - the loss, which is a 1-D tensor of shape (N,)
           - the gradient, it is empty if logits does not require grad.
@@ -28,7 +27,7 @@ namespace ot {
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
     const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
-    int32_t blank, double clamp = 0);
+    int32_t blank);
 
 }  // namespace ot
 

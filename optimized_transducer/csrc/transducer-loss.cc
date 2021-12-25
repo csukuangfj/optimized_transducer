@@ -309,7 +309,7 @@ static void ComputeGradient(
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
     const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
-    int32_t blank, double clamp /*=0*/) {
+    int32_t blank) {
   auto logits_arg = torch::TensorArg(logits, "logits", 0);
   auto targets_arg = torch::TensorArg(targets, "targets", 1);
   auto logit_lengths_arg = torch::TensorArg(logit_lengths, "logit_lengths", 2);
