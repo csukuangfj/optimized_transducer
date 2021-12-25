@@ -1,1 +1,1 @@
-from _optimized_transducer import compute_transducer_loss
+from .transducer_loss import TransducerLoss, transducer_loss  # noqa
