@@ -1,4 +1,4 @@
-// optimized_transducer/csrc/transducer_loss.h
+// optimized_transducer/csrc/transducer_loss.cc
 //
 // Copyright (c)  2021  Xiaomi Corporation (authors: Fangjun Kuang)
 //
@@ -244,6 +244,68 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeBeta(
   return {beta, total_scores};
 }
 
+static void ComputeGradient(
+    const torch::Tensor &logits, const torch::Tensor &logit_lengths,
+    const torch::Tensor &targets, const torch::Tensor &target_lengths,
+    const torch::Tensor &denominator, const torch::Tensor &alpha,
+    const torch::Tensor &beta, int32_t blank, torch::Tensor *gradient) {
+  // see
+  // https://github.com/pytorch/audio/blob/main/torchaudio/csrc/rnnt/cpu/cpu_kernels.h#L317
+  // for the formula to compute the gradient.
+
+  torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
+                                         logit_lengths.numel());
+
+  torch::ArrayRef<int32_t> target_len_arr(target_lengths.data_ptr<int32_t>(),
+                                          target_lengths.numel());
+
+  const float *p_logits = logits.data_ptr<float>();
+  const float *p_alpha = alpha.data_ptr<float>();
+  const float *p_beta = beta.data_ptr<float>();
+  const float *p_den = denominator.data_ptr<float>();
+  float *p_grad = gradient->data_ptr<float>();
+
+  const int32_t *p_targets = targets.data_ptr<int32_t>();
+
+  int32_t V = logits.size(1);  // vocabulary size including blank
+
+  int32_t batch_size = logit_lengths.size(0);
+  for (int32_t b = 0; b != batch_size; ++b, p_targets += targets.size(1)) {
+    int32_t T = logit_len_arr[b];
+
+    // p1 means plus one
+    // We need to plus one since it is prepended with a blank
+    int32_t U_p1 = target_len_arr[b] + 1;
+
+    float loss = -p_beta[0];
+
+    for (int32_t t = 0; t != T;
+         ++t, p_alpha += U_p1, p_beta += U_p1, p_den += U_p1) {
+      const float *p_beta_t_p1 = p_beta + U_p1;
+
+      for (int32_t u = 0; u != U_p1; ++u, p_logits += V, p_grad += V) {
+        int32_t target_u = u < U_p1 - 1 ? p_targets[u] : -1;  // -1 is not used
+        float c = p_alpha[u] + loss - p_den[u];
+
+        for (int32_t v = 0; v != V; ++v) {
+          float g = p_logits[v] + c;
+
+          if (v == blank && t == T - 1 && u == U_p1 - 1) {
+            // last blank transition
+            p_grad[v] = std::exp(g + p_beta[u]) - std::exp(g);
+          } else if (v == blank && t < T - 1) {
+            p_grad[v] = std::exp(g + p_beta[u]) - std::exp(g + p_beta_t_p1[u]);
+          } else if (u < U_p1 - 1 && v == target_u) {
+            p_grad[v] = std::exp(g + p_beta[u]) - std::exp(g + p_beta[u + 1]);
+          } else {
+            p_grad[v] = std::exp(g + p_beta[u]);
+          }
+        }
+      }
+    }
+  }
+}
+
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
     const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
@@ -308,18 +370,21 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
       logits, denominator, targets, logit_lengths, target_lengths, blank);
 
   torch::Tensor alpha;
-  torch::Tensor beta;
   torch::Tensor total_scores;
   std::tie(alpha, total_scores) =
       ComputeAlpha(log_probs, logit_lengths, target_lengths);
-  // std::cout << alpha << "\n";
-  std::cout << total_scores << "\n";
 
-  std::tie(beta, total_scores) =
-      ComputeBeta(log_probs, logit_lengths, target_lengths);
-  std::cout << "beta: " << beta << "\n";
-  std::cout << total_scores << "\n";
-  return {};
+  torch::Tensor beta =
+      ComputeBeta(log_probs, logit_lengths, target_lengths).first;
+
+  bool requires_grad = logits.requires_grad();
+  if (requires_grad) {
+    torch::Tensor &gradient = logits;
+    ComputeGradient(logits, logit_lengths, targets, target_lengths, denominator,
+                    alpha, beta, blank, &gradient);
+  }
+
+  return {total_scores, requires_grad ? logits : torch::Tensor()};
 }
 
 }  // namespace ot

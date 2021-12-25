@@ -8,11 +8,11 @@ import torchaudio
 
 
 def test_compute_transducer_loss():
-    T1 = 4
-    T2 = 3
+    T1 = 3
+    T2 = 2
 
     U1 = 3
-    U2 = 5
+    U2 = 4
 
     V = 3
 
@@ -36,23 +36,12 @@ def test_compute_transducer_loss():
     target_lengths = torch.tensor([U1, U2], dtype=torch.int32, device=device) - 1
 
     optimized_transducer.compute_transducer_loss(
-        logits=logits,
+        logits=logits.requires_grad_(True),
         targets=targets,
         logit_lengths=logit_lengths,
         target_lengths=target_lengths,
         blank=0,
     )
-    print(
-        torch.ops.torchaudio.rnnt_loss_betas(
-            logits=torch_logits,
-            targets=targets,
-            logit_lengths=logit_lengths,
-            target_lengths=target_lengths,
-            blank=0,
-            clamp=0,
-        )
-    )
-    return
 
     print(
         torch.ops.torchaudio.rnnt_loss(
@@ -64,6 +53,7 @@ def test_compute_transducer_loss():
             clamp=0,
         )
     )
+    print(logits)
 
 
 def main():
