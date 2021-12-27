@@ -52,7 +52,7 @@ static torch::Tensor ComputeLogProbs(const torch::Tensor &logits,
                                      int32_t blank) {
   // + 1 here since each sequence is prepended with a blank
   torch::Tensor sizes = logit_lengths * (target_lengths + 1);
-  torch::Tensor row_splits = torch::cumsum(sizes, -1).to(torch::kInt);
+  torch::Tensor row_splits = torch::cumsum(sizes, -1, torch::kInt);
   torch::Tensor zero = torch::zeros({1}, row_splits.options());
   row_splits = torch::cat({zero, row_splits}, -1);
   torch::Tensor row_ids = RowSplitsToRowIds(row_splits, logits.size(0));
@@ -87,7 +87,6 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
 
   torch::Tensor log_probs = ComputeLogProbs(
       logits, denominator, targets, logit_lengths, target_lengths, blank);
-  std::cout << "log probs: \n" << log_probs << "\n";
   //
   //
   torch::Tensor total_scores =
