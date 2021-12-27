@@ -70,13 +70,24 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     return ComputeTransducerLossCpu(logits, targets, logit_lengths,
                                     target_lengths, blank);
   } else {
+#ifdef OT_WITH_CUDA
     torch::checkAllSameGPU(
         checked_from,
         {logits_arg, targets_arg, logit_lengths_arg, target_lengths_arg});
 
-    throw std::runtime_error("CUDA version is still working in progress");
+    return ComputeTransducerLossCuda(logits, targets, logit_lengths,
+                                     target_lengths, blank);
+
+#else
+    throw std::runtime_error(
+        R"(optimized_transducer was not compiled with CUDA support!
+    Please use
+      cmake -DOT_WITH_CUDA=ON
+    while compiling it."
+    )");
 
     return {};
+#endif
   }
 }
 
