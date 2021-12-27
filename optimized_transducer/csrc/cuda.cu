@@ -60,7 +60,6 @@ static torch::Tensor ComputeLogProbs(const torch::Tensor &logits,
   const float *p_logits = logits.data_ptr<float>();
   const float *p_den = denominator.data_ptr<float>();
   const int32_t *p_targets = targets.data_ptr<int32_t>();
-  const int32_t *p_logit_lengths = logit_lengths.data_ptr<int32_t>();
   const int32_t *p_target_lengths = target_lengths.data_ptr<int32_t>();
   const int32_t *p_row_splits = row_splits.data_ptr<int32_t>();
   const int32_t *p_row_ids = row_ids.data_ptr<int32_t>();
@@ -72,9 +71,8 @@ static torch::Tensor ComputeLogProbs(const torch::Tensor &logits,
       (logits.size(0) + kMaxThreadsPerBlock - 1) / kMaxThreadsPerBlock;
 
   ComputeLogProbs<<<num_blocks, kMaxThreadsPerBlock>>>(
-      p_logits, p_den, p_targets, p_logit_lengths, p_target_lengths, blank,
-      p_row_splits, p_row_ids, logits.size(0), logits.size(1), targets.size(1),
-      p_log_probs);
+      p_logits, p_den, p_targets, p_target_lengths, blank, p_row_splits,
+      p_row_ids, logits.size(0), logits.size(1), targets.size(1), p_log_probs);
 
   return log_probs;
 }

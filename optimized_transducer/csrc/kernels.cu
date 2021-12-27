@@ -7,16 +7,17 @@
 
 namespace ot {
 
-__global__ void ComputeLogProbs(
-    const float *logits, const float *denominator, const int32_t *targets,
-    const int32_t *logit_lengths, const int32_t *target_lengths, int32_t blank,
-    const int32_t *row_splits, const int32_t *row_ids, int32_t sum_all_TU,
-    int32_t vocab_size, int32_t targets_col, float *log_probs) {
+__global__ void ComputeLogProbs(const float *logits, const float *denominator,
+                                const int32_t *targets,
+                                const int32_t *target_lengths, int32_t blank,
+                                const int32_t *row_splits,
+                                const int32_t *row_ids, int32_t sum_all_TU,
+                                int32_t vocab_size, int32_t targets_col,
+                                float *log_probs) {
   int32_t idx01 = blockDim.x * blockIdx.x + threadIdx.x;
   if (idx01 >= sum_all_TU) return;  // out-of-boundary
 
   int32_t b = row_ids[idx01];  // batch size
-  // int32_t T = logit_lengths[b];
 
   // +1 since it is prepended with a blank
   int32_t U_p1 = target_lengths[b] + 1;
