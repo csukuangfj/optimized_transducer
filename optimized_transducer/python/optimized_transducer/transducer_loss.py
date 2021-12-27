@@ -102,7 +102,8 @@ class TransducerLossFunction(torch.autograd.Function):
 
         if reduction == "mean":
             loss = loss.mean()
-            grad /= logit_lengths.size(0)
+            if grad is not None:
+                grad /= logit_lengths.size(0)
         elif reduction == "sum":
             loss = loss.sum()
 
