@@ -18,9 +18,9 @@ endfunction()
 # please sort the files in alphabetic order
 set(py_test_files
   test_compute_transducer_loss.py
+  test_cuda.py
 )
 
 foreach(source IN LISTS py_test_files)
   optimized_transducer_add_py_test(${source})
 endforeach()
-

@@ -29,6 +29,9 @@ endif()
 
 if(_OT_WITH_CUDA)
   set(languages ${languages} CUDA)
+  if(NOT DEFINED OT_WITH_CUDA)
+    set(OT_WITH_CUDA ON)
+  endif()
 endif()
 
 message(STATUS "Enabled languages: ${languages}")
@@ -63,6 +66,7 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN")
 set(CMAKE_BUILD_RPATH "$ORIGIN")
 
 if(OT_WITH_CUDA)
+  add_definitions(-DOT_WITH_CUDA)
   # Force CUDA C++ standard to be the same as the C++ standard used.
   #
   # Now, CMake is unaligned with reality on standard versions: https://gitlab.kitware.com/cmake/cmake/issues/18597
@@ -125,6 +129,10 @@ include(torch)
 if(OT_BUILD_TESTS)
   enable_testing()
   include(googletest)
+endif()
+
+if(OT_WITH_CUDA)
+  include(moderngpu)
 endif()
 
 add_subdirectory(optimized_transducer)
