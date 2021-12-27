@@ -318,10 +318,13 @@ ComputeTransducerLossCpu(torch::Tensor &logits, const torch::Tensor &targets,
   torch::Tensor log_probs = ComputeLogProbs(
       logits, denominator, targets, logit_lengths, target_lengths, blank);
 
+  std::cout << "cpu log_probs: \n" << log_probs << "\n";
+
   torch::Tensor alpha;
   torch::Tensor total_scores;
   std::tie(alpha, total_scores) =
       ComputeAlpha(log_probs, logit_lengths, target_lengths);
+  std::cout << "cpu alpha: \n" << alpha << "\n";
 
   torch::Tensor beta =
       ComputeBeta(log_probs, logit_lengths, target_lengths).first;
