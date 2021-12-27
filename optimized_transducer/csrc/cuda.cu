@@ -1,4 +1,4 @@
-// optimized_transducer/csrc/cpu.cu
+// optimized_transducer/csrc/cuda.cu
 //
 // Copyright (c)  2021  Xiaomi Corporation (authors: Fangjun Kuang)
 
@@ -10,6 +10,16 @@ namespace ot {
 
 // See https://github.com/k2-fsa/k2/blob/master/k2/csrc/utils.cu#L75
 // for the meaning of row splits and row IDs.
+/**
+
+  @param row_splits  A 1-D tensor of dtype torch.int32. Its first
+                     element should be zero.
+  @param num_elems   If -1, it is equal to row_splits[-1].
+                     If not -1, it must be equal to row_splits[-1].
+
+  @return Return a 1-D tensor of dtype torch.int32. Its lengths
+          equals to num_elems.
+ */
 torch::Tensor RowSplitsToRowIds(const torch::Tensor &row_splits,
                                 int32_t num_elems = -1) {
   torch::CheckedFrom c = "RowSplitsToRowIds";
