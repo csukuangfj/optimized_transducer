@@ -8,6 +8,7 @@
 #include "torch/script.h"
 
 static constexpr int32_t kMaxThreadsPerBlock = 1024;
+static constexpr int32_t kWarpSize = 32;
 
 namespace ot {
 
@@ -44,12 +45,10 @@ torch::Tensor RowSplitsToRowIds(const torch::Tensor &row_splits,
   return row_ids;
 }
 
-static torch::Tensor ComputeLogProbs(const torch::Tensor &logits,
-                                     const torch::Tensor &denominator,
-                                     const torch::Tensor &targets,
-                                     const torch::Tensor &logit_lengths,
-                                     const torch::Tensor &target_lengths,
-                                     int32_t blank) {
+static std::pair<torch::Tensor, torch::Tensor> ComputeLogProbs(
+    const torch::Tensor &logits, const torch::Tensor &denominator,
+    const torch::Tensor &targets, const torch::Tensor &logit_lengths,
+    const torch::Tensor &target_lengths, int32_t blank) {
   // + 1 here since each sequence is prepended with a blank
   torch::Tensor sizes = logit_lengths * (target_lengths + 1);
   torch::Tensor row_splits = torch::cumsum(sizes, -1, torch::kInt);
@@ -74,7 +73,37 @@ static torch::Tensor ComputeLogProbs(const torch::Tensor &logits,
       p_logits, p_den, p_targets, p_target_lengths, blank, p_row_splits,
       p_row_ids, logits.size(0), logits.size(1), targets.size(1), p_log_probs);
 
-  return log_probs;
+  return {log_probs, row_splits};
+}
+
+static torch::Tensor ComputeAlpha(const torch::Tensor &log_probs,
+                                  const torch::Tensor &logit_lengths,
+                                  const torch::Tensor &target_lengths,
+                                  const torch::Tensor &row_splits) {
+  // it is prepended with a blank so we need to use +1 here
+  int32_t max_T = logit_lengths.max().item<int32_t>();
+  int32_t max_U_p1 = target_lengths.max().item<int32_t>() + 1;
+  int32_t batch_size = logit_lengths.size(0);
+
+  int32_t num_warps = (max_T + kWarpSize - 1) / kWarpSize;
+  dim3 block_dims(num_warps, max_U_p1, batch_size);
+  dim3 thread_dims(kWarpSize);
+
+  torch::Tensor alpha = torch::empty({log_probs.size(0)}, log_probs.options());
+  torch::Tensor counter =
+      torch::zeros({batch_size * max_U_p1}, logit_lengths.options());
+
+  const float *p_log_probs = log_probs.data_ptr<float>();
+  const int32_t *p_logit_lengths = logit_lengths.data_ptr<int32_t>();
+  const int32_t *p_target_lengths = target_lengths.data_ptr<int32_t>();
+  const int32_t *p_row_splits = row_splits.data_ptr<int32_t>();
+  int32_t *p_counter = counter.data_ptr<int32_t>();
+  float *p_alpha = alpha.data_ptr<float>();
+
+  ComputeAlpha<<<block_dims, thread_dims>>>(
+      p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
+      max_U_p1, p_counter, p_alpha);
+  return alpha;
 }
 
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
@@ -85,10 +114,15 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
   // Note that it is positive at present.
   torch::Tensor denominator = logits.logsumexp(/*dim*/ 1, /*keepdim*/ false);
 
-  torch::Tensor log_probs = ComputeLogProbs(
+  torch::Tensor log_probs;
+  torch::Tensor row_splits;
+
+  std::tie(log_probs, row_splits) = ComputeLogProbs(
       logits, denominator, targets, logit_lengths, target_lengths, blank);
-  //
-  //
+
+  torch::Tensor alpha =
+      ComputeAlpha(log_probs, logit_lengths, target_lengths, row_splits);
+
   torch::Tensor total_scores =
       torch::zeros({logit_lengths.size(0)}, logits.options());
 

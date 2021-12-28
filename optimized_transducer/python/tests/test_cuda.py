@@ -70,9 +70,10 @@ def test_loss():
 
 
 def main():
-    test_row_splits()
+    #  test_row_splits()
     test_loss()
 
 
 if __name__ == "__main__":
+    torch.manual_seed(20211227)
     main()
