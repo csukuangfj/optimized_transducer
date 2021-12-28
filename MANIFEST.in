@@ -1,0 +1,5 @@
+include README.md
+include LICENSE
+include CMakeLists.txt
+recursive-include optimized_transducer *.*
+recursive-include cmake *.*
