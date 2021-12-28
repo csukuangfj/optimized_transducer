@@ -66,7 +66,12 @@ jobs:
         run: |
           python3 -m pip install -qq --upgrade pip
           python3 -m pip install -qq wheel twine typing_extensions
-          python3 -m pip install -qq torch==${{ matrix.torch }}+cpu torchaudio==${{ matrix.torch }}+cpu -f https://download.pytorch.org/whl/torch_stable.html
+
+          python3 -m pip install -qq torch==${{ matrix.torch }}+cpu -f https://download.pytorch.org/whl/torch_stable.html
+
+          if [[ ${{ matrix.torch }} == "1.10.0" ]]; then
+            python3 -m pip install -qq torchaudio==0.10.0+cpu -f https://download.pytorch.org/whl/torch_stable.html
+          fi
 
           python3 -c "import torch; print('torch version:', torch.__version__)"
 
