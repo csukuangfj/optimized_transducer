@@ -64,7 +64,8 @@ __global__ void ComputeAlpha(const float *log_probs,
                              const int32_t *logit_lengths,
                              const int32_t *target_lengths,
                              const int32_t *row_splits, int32_t max_T,
-                             int32_t max_U_p1, int32_t *counter, float *alpha) {
+                             int32_t max_U_p1, int32_t *counter, float *alpha,
+                             float *total_scores) {
   int32_t b = blockIdx.z;
   int32_t T = logit_lengths[b];
   int32_t U_p1 = target_lengths[b] + 1;
@@ -113,12 +114,15 @@ __global__ void ComputeAlpha(const float *log_probs,
   if (u == 1) {
     float skip_prob = p_log_probs_t_m1[kBlankCol];
     float val;
+
+#pragma unroll
     for (int32_t i = 1; i < warpSize; i <<= 1) {
       val = __shfl_up_sync(0xffffffff, skip_prob, i);
       if (i <= threadIdx.x) {
         skip_prob = skip_prob + val;
       }
     }
+
     val = *(p_alpha + blockIdx.x * blockDim.x * U_p1);
     p_alpha_t[0] = skip_prob + val;
   }
@@ -133,6 +137,8 @@ __global__ void ComputeAlpha(const float *log_probs,
   float emit = *(p_alpha_t + u - 1) + emit_prob;
   float val = LogAdd(skip, emit);
   float out = val;
+
+#pragma unroll
   for (int32_t i = 1; i < warpSize; ++i) {
     val = __shfl_up_sync(0xffffffff, val, 1);
     if (i == threadIdx.x) {
@@ -141,6 +147,106 @@ __global__ void ComputeAlpha(const float *log_probs,
     }
   }
   *(p_alpha_t + u) = out;
+
+  if (threadIdx.x == 0) {
+    __threadfence();
+    atomicAdd(p_counter, 1);
+  }
+
+  if ((t == T - 1) && (u == U_p1 - 1)) {
+    total_scores[b] =
+        p_alpha_t[U_p1 - 1] + (p_log_probs_t + (U_p1 - 1) * 2)[kBlankCol];
+  }
+}
+
+// This function uses
+// https://github.com/pytorch/audio/blob/main/torchaudio/csrc/rnnt/gpu/gpu_kernels.cuh#L159
+// as a reference
+__global__ void ComputeBeta(const float *log_probs,
+                            const int32_t *logit_lengths,
+                            const int32_t *target_lengths,
+                            const int32_t *row_splits, int32_t max_T,
+                            int32_t max_U_p1, int32_t *counter, float *beta) {
+  int32_t b = blockIdx.z;
+  int32_t T = logit_lengths[b];
+  int32_t U_p1 = target_lengths[b] + 1;
+
+  const int t = T - 2 - blockDim.x * blockIdx.x - threadIdx.x;
+  const int u = U_p1 - 2 - blockIdx.y;
+
+  if (t < 0 || u < 0) return;  // out-of-boundary
+
+  int32_t offset = row_splits[b];
+  int32_t *p_counter = counter + b * max_U_p1 + blockIdx.y;
+
+  float *p_beta = beta + offset;
+  float *p_beta_t = p_beta + t * U_p1;
+  float *p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+
+  const float *p_log_probs = log_probs + offset * 2;
+  const float *p_log_probs_t = p_log_probs + t * U_p1 * 2;
+  const float *p_log_probs_t_p1 = p_log_probs + (t + 1) * U_p1 * 2;
+
+  if (t == T - 2 && u == U_p1 - 2) {
+    // beta(T-1, U_p1-1) = log_probs(T-1, U_p1-1).blank
+    p_beta_t_p1[U_p1 - 1] = (p_log_probs_t_p1 + (U_p1 - 1) * 2)[kBlankCol];
+  }
+
+  if (blockIdx.x > 0) {
+    // wait for previous warp to finish (t-axis)
+    while (atomicAdd(p_counter, 0) < blockIdx.x) {
+      // busy waiting
+    }
+  }
+
+  if (blockIdx.y > 0) {
+    // wait for previous warp to finish (u-axis)
+    while (atomicAdd(p_counter - 1, 0) <= blockIdx.x) {
+      // busy waiting
+    }
+  }
+
+  if (t == T - 2) {
+    // beta(T-1, u) = beta(T-1, u+1) + log_probs(T-1, u).symbol
+    p_beta_t_p1[u] = p_beta_t_p1[u + 1] + (p_log_probs_t_p1 + u * 2)[kSymCol];
+  }
+
+  if (u == U_p1 - 2) {
+    float skip_prob = (p_log_probs_t + (U_p1 - 1) * 2)[kBlankCol];
+    float val;
+
+#pragma unroll
+    for (int i = 1; i < warpSize; i <<= 1) {
+      val = __shfl_up_sync(0xffffffff, skip_prob, i);
+      if (i <= threadIdx.x) {
+        skip_prob = skip_prob + val;
+      }
+    }
+
+    p_beta_t[U_p1 - 1] =
+        (p_beta + (T - 1 - blockDim.x * blockIdx.x) * U_p1)[U_p1 - 1] +
+        skip_prob;
+  }
+
+  float skip_prob = (p_log_probs_t + u * 2)[kBlankCol];
+  float emit_prob = (p_log_probs_t + u * 2)[kSymCol];
+
+  float skip = (p_beta + (t + threadIdx.x + 1) * U_p1)[u] + skip_prob;
+  float emit = p_beta_t[u + 1] + emit_prob;
+
+  float val = LogAdd(skip, emit);
+  float out = val;
+
+#pragma unroll
+  for (int i = 1; i < warpSize; ++i) {
+    val = __shfl_up_sync(0xffffffff, val, 1);
+    if (i == threadIdx.x) {
+      val = LogAdd(val + skip_prob, emit);
+      out = val;
+    }
+  }
+
+  p_beta_t[u] = out;
 
   if (threadIdx.x == 0) {
     __threadfence();
