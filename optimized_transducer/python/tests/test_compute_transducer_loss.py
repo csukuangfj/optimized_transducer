@@ -8,7 +8,17 @@ import torchaudio
 import optimized_transducer
 
 
-def test_compute_transducer_loss(reduction: str):
+def get_devices():
+    devices = [torch.device("cpu")]
+    if torch.cuda.is_available():
+        devices.append(torch.device("cuda", 0))
+        if torch.cuda.device_count() > 1:
+            devices.append(torch.device("cuda", 1))
+            torch.cuda.set_device(devices[-1])
+    return devices
+
+
+def test_compute_transducer_loss(reduction: str, device="cpu"):
     T1 = torch.randint(1, 100, (1,)).item()
     T2 = torch.randint(1, 100, (1,)).item()
 
@@ -16,8 +26,6 @@ def test_compute_transducer_loss(reduction: str):
     U2 = torch.randint(5, 100, (1,)).item()
 
     V = torch.randint(5, 100, (1,)).item()
-
-    device = torch.device("cpu")
 
     torch_logits = torch.rand(
         2, max(T1, T2), max(U1, U2), V, device=device
@@ -74,7 +82,7 @@ def test_compute_transducer_loss(reduction: str):
         reduction=reduction,
     )
 
-    assert torch.allclose(loss, torch_loss)
+    assert torch.allclose(loss, torch_loss), (loss, torch_loss)
     (loss.sum() * 3).backward()
     (torch_loss.sum() * 3).backward()
 
@@ -92,8 +100,12 @@ def test_compute_transducer_loss(reduction: str):
 
 
 def main():
-    for reduction in ["mean", "sum"]:
-        test_compute_transducer_loss(reduction)
+    devices = get_devices()
+    print("devices", devices)
+    for device in devices:
+        for reduction in ["mean", "sum"]:
+            print(device, reduction)
+            test_compute_transducer_loss(reduction, device=device)
 
 
 if __name__ == "__main__":

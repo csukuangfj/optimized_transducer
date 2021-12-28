@@ -87,7 +87,8 @@ static torch::Tensor ComputeLogProbs(
   int32_t num_blocks =
       (logits.size(0) + kMaxThreadsPerBlock - 1) / kMaxThreadsPerBlock;
 
-  ComputeLogProbs<<<num_blocks, kMaxThreadsPerBlock>>>(
+  ComputeLogProbs<<<num_blocks, kMaxThreadsPerBlock, 0,
+                    c10::cuda::getCurrentCUDAStream()>>>(
       p_logits, p_den, p_targets, p_target_lengths, blank, p_row_splits,
       p_row_ids, logits.size(0), logits.size(1), targets.size(1), p_log_probs);
 
@@ -134,7 +135,8 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
   float *p_alpha = alpha.data_ptr<float>();
   float *p_total_socres = total_scores.data_ptr<float>();
 
-  ComputeAlpha<<<block_dims, thread_dims>>>(
+  ComputeAlpha<<<block_dims, thread_dims, 0,
+                 c10::cuda::getCurrentCUDAStream()>>>(
       p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
       max_U_p1, p_counter, p_alpha, p_total_socres);
 
@@ -180,9 +182,10 @@ static torch::Tensor ComputeBeta(const torch::Tensor &log_probs,
   int32_t *p_counter = counter.data_ptr<int32_t>();
   float *p_beta = beta.data_ptr<float>();
 
-  ComputeBeta<<<block_dims, thread_dims>>>(p_log_probs, p_logit_lengths,
-                                           p_target_lengths, p_row_splits,
-                                           max_T, max_U_p1, p_counter, p_beta);
+  ComputeBeta<<<block_dims, thread_dims, 0,
+                c10::cuda::getCurrentCUDAStream()>>>(
+      p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
+      max_U_p1, p_counter, p_beta);
 
   auto ret = cudaGetLastError();
   OT_CHECK_CUDA(ret);
@@ -227,7 +230,8 @@ static void ComputeGradient(
   int32_t num_blocks =
       (logits.size(0) + kMaxThreadsPerBlock - 1) / kMaxThreadsPerBlock;
 
-  ComputeGradient<<<num_blocks, kMaxThreadsPerBlock>>>(
+  ComputeGradient<<<num_blocks, kMaxThreadsPerBlock, 0,
+                    c10::cuda::getCurrentCUDAStream()>>>(
       p_logits, p_den, p_targets, p_logit_lengths, p_target_lengths, blank,
       p_row_splits, p_row_ids, logits.size(0), logits.size(1), targets.size(1),
       p_alpha, p_beta, p_grad);
@@ -241,6 +245,7 @@ ComputeTransducerLossCuda(torch::Tensor &logits,  // NOLINT
                           const torch::Tensor &targets,
                           const torch::Tensor &logit_lengths,
                           const torch::Tensor &target_lengths, int32_t blank) {
+  torch::DeviceGuard device_guard(logits.device());
   // The denominator for the log-softmax.
   // Note that it is positive at present.
   torch::Tensor denominator = logits.logsumexp(/*dim*/ 1, /*keepdim*/ false);
