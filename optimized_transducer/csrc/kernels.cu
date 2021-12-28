@@ -2,6 +2,8 @@
 //
 // Copyright (c)  2021  Xiaomi Corporation (authors: Fangjun Kuang)
 
+#include "optimized_transducer/csrc/kernels.h"
+
 #define kBlankCol 0
 #define kSymCol 1
 

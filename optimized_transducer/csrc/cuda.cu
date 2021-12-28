@@ -12,6 +12,10 @@ static constexpr int32_t kWarpSize = 32;
 
 namespace ot {
 
+/** Check the status of the return value of some cuda API.
+
+    It throws runtime error exception if the status is not cudaSuccess.
+ */
 static void CheckCuda(cudaError_t result, const char *file, int32_t line) {
   if (result != cudaSuccess) {
     std::ostringstream os;
@@ -54,6 +58,17 @@ torch::Tensor RowSplitsToRowIds(const torch::Tensor &row_splits,
   return row_ids;
 }
 
+/**
+  @param logits A 2-D tensor of shape (sum_all_TU, vocab_size) containing
+                the output from the joint network.
+  @param denominator  A 1-D tensor of shape (sum_all_TU,).
+  @param targets  A 2-D tensor of shape (batch_size, max_U).
+  @param logit_lengths A 1-D tensor of shape (batch_size,)
+  @param target_lengths A 1-D tensor of shape (batch_size,)
+  @param row_splits A 1-D tensor of shape (batch_size,)
+  @param row_ids A 1-D tensor of shape (sum_all_TU,)
+  @param blank The ID of the blank symbol.
+ */
 static torch::Tensor ComputeLogProbs(
     const torch::Tensor &logits, const torch::Tensor &denominator,
     const torch::Tensor &targets, const torch::Tensor &logit_lengths,
@@ -82,6 +97,16 @@ static torch::Tensor ComputeLogProbs(
   return log_probs;
 }
 
+/**
+  @param log_probs  A 2-D tensor of shape (sum_all_TU, 2).
+  @param logit_lengths A 1-D tensor of shape (batch_size,)
+  @param target_lengths A 1-D tensor of shape (batch_size,)
+  @param row_splits A 1-D tensor of shape (batch_size,)
+
+  @return Return a pair containing:
+    - alpha, a 1-D tensor of shape (sum_all_TU, )
+    - total_scores, a 1-D tensor of shape (batch_size,)
+ */
 static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
     const torch::Tensor &log_probs, const torch::Tensor &logit_lengths,
     const torch::Tensor &target_lengths, const torch::Tensor &row_splits) {
@@ -119,6 +144,14 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
   return {alpha, total_scores};
 }
 
+/**
+  @param log_probs  A 2-D tensor of shape (sum_all_TU, 2).
+  @param logit_lengths A 1-D tensor of shape (batch_size,)
+  @param target_lengths A 1-D tensor of shape (batch_size,)
+  @param row_splits A 1-D tensor of shape (batch_size,)
+
+  @param Return the computed beta in a 1-D tensor of shape (sum_all_TU,)
+ */
 static torch::Tensor ComputeBeta(const torch::Tensor &log_probs,
                                  const torch::Tensor &logit_lengths,
                                  const torch::Tensor &target_lengths,
@@ -157,6 +190,22 @@ static torch::Tensor ComputeBeta(const torch::Tensor &log_probs,
   return beta;
 }
 
+/**
+  @param logits A 2-D tensor of shape (sum_all_TU, vocab_size) containing
+                the output from the joint network.
+  @param logit_lengths A 1-D tensor of shape (batch_size,)
+  @param targets  A 2-D tensor of shape (batch_size, max_U).
+  @param target_lengths A 1-D tensor of shape (batch_size,)
+  @param denominator  A 1-D tensor of shape (sum_all_TU,).
+  @param alpha  A 1-D tensor of shape (sum_all_TU,).
+  @param beta  A 1-D tensor of shape (sum_all_TU,).
+  @param blank The ID of the blank symbol.
+  @param row_splits A 1-D tensor of shape (batch_size,)
+  @param row_ids A 1-D tensor of shape (sum_all_TU,)
+  @param gradient A 2-D tensor of shape (sum_all_TU, vocab_size).
+                  Note: It may share the same underlying memory with
+                  `logits`.
+ */
 static void ComputeGradient(
     const torch::Tensor &logits, const torch::Tensor &logit_lengths,
     const torch::Tensor &targets, const torch::Tensor &target_lengths,
@@ -188,7 +237,8 @@ static void ComputeGradient(
 }
 
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
-ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
+ComputeTransducerLossCuda(torch::Tensor &logits,  // NOLINT
+                          const torch::Tensor &targets,
                           const torch::Tensor &logit_lengths,
                           const torch::Tensor &target_lengths, int32_t blank) {
   // The denominator for the log-softmax.
