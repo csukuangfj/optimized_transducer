@@ -39,22 +39,26 @@ def test_loss():
     logit_lengths = torch.tensor([T1, T2], dtype=torch.int32)
     target_lengths = torch.tensor([U1, U2], dtype=torch.int32) - 1
 
-    logits0 = logits[0, :T1, :U1, :].reshape(-1, V)
-    logits1 = logits[1, :T2, :U2, :].reshape(-1, V)
+    logits0 = logits[0, :T1, :U1, :].reshape(-1, V).requires_grad_(True)
+    logits1 = logits[1, :T2, :U2, :].reshape(-1, V).requires_grad_(True)
 
-    ot_logits = torch.cat([logits0, logits1])
-    print(ot_logits.shape)
+    logits = torch.cat([logits0, logits1])
+
     loss = optimized_transducer.transducer_loss(
-        logits=ot_logits,
+        logits=logits,
         targets=targets,
         logit_lengths=logit_lengths,
         target_lengths=target_lengths,
         blank=0,
     )
+    loss.backward()
     print(loss)
     # now for cuda
     device = torch.device("cuda", 0)
-    ot_logits = ot_logits.to(device)
+    ot_logits0 = logits0.detach().clone().to(device).requires_grad_(True)
+    ot_logits1 = logits1.detach().clone().to(device).requires_grad_(True)
+    ot_logits = torch.cat([ot_logits0, ot_logits1])
+
     targets = targets.to(device)
     logit_lengths = logit_lengths.to(device)
     target_lengths = target_lengths.to(device)
@@ -66,7 +70,11 @@ def test_loss():
         target_lengths=target_lengths,
         blank=0,
     )
-    print(loss_cuda)
+    loss_cuda.backward()
+
+    assert torch.allclose(loss, loss_cuda.cpu())
+    assert torch.allclose(logits0.grad, ot_logits0.grad.cpu())
+    assert torch.allclose(logits1.grad, ot_logits1.grad.cpu())
 
 
 def main():

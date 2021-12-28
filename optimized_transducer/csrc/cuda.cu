@@ -163,8 +163,28 @@ static void ComputeGradient(
     const torch::Tensor &denominator, const torch::Tensor &alpha,
     const torch::Tensor &beta, int32_t blank, const torch::Tensor &row_splits,
     const torch::Tensor &row_ids, torch::Tensor *gradient) {
-  //
-  //
+  const float *p_logits = logits.data_ptr<float>();
+  const int32_t *p_logit_lengths = logit_lengths.data_ptr<int32_t>();
+  const int32_t *p_targets = targets.data_ptr<int32_t>();
+  const int32_t *p_target_lengths = target_lengths.data_ptr<int32_t>();
+  const float *p_den = denominator.data_ptr<float>();
+  const float *p_alpha = alpha.data_ptr<float>();
+  const float *p_beta = beta.data_ptr<float>();
+  const int32_t *p_row_splits = row_splits.data_ptr<int32_t>();
+  const int32_t *p_row_ids = row_ids.data_ptr<int32_t>();
+
+  float *p_grad = gradient->data_ptr<float>();
+
+  int32_t num_blocks =
+      (logits.size(0) + kMaxThreadsPerBlock - 1) / kMaxThreadsPerBlock;
+
+  ComputeGradient<<<num_blocks, kMaxThreadsPerBlock>>>(
+      p_logits, p_den, p_targets, p_logit_lengths, p_target_lengths, blank,
+      p_row_splits, p_row_ids, logits.size(0), logits.size(1), targets.size(1),
+      p_alpha, p_beta, p_grad);
+
+  auto ret = cudaGetLastError();
+  OT_CHECK_CUDA(ret);
 }
 
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
@@ -185,7 +205,6 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
   torch::Tensor log_probs =
       ComputeLogProbs(logits, denominator, targets, logit_lengths,
                       target_lengths, row_splits, row_ids, blank);
-
   torch::Tensor alpha;
   torch::Tensor total_scores;
   std::tie(alpha, total_scores) =
