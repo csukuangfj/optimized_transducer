@@ -54,17 +54,11 @@ torch::Tensor RowSplitsToRowIds(const torch::Tensor &row_splits,
   return row_ids;
 }
 
-static std::pair<torch::Tensor, torch::Tensor> ComputeLogProbs(
+static torch::Tensor ComputeLogProbs(
     const torch::Tensor &logits, const torch::Tensor &denominator,
     const torch::Tensor &targets, const torch::Tensor &logit_lengths,
-    const torch::Tensor &target_lengths, int32_t blank) {
-  // + 1 here since each sequence is prepended with a blank
-  torch::Tensor sizes = logit_lengths * (target_lengths + 1);
-  torch::Tensor row_splits = torch::cumsum(sizes, -1, torch::kInt);
-  torch::Tensor zero = torch::zeros({1}, row_splits.options());
-  row_splits = torch::cat({zero, row_splits}, -1);
-  torch::Tensor row_ids = RowSplitsToRowIds(row_splits, logits.size(0));
-
+    const torch::Tensor &target_lengths, const torch::Tensor &row_splits,
+    const torch::Tensor &row_ids, int32_t blank) {
   const float *p_logits = logits.data_ptr<float>();
   const float *p_den = denominator.data_ptr<float>();
   const int32_t *p_targets = targets.data_ptr<int32_t>();
@@ -85,7 +79,7 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeLogProbs(
   auto ret = cudaGetLastError();
   OT_CHECK_CUDA(ret);
 
-  return {log_probs, row_splits};
+  return log_probs;
 }
 
 static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
@@ -163,6 +157,36 @@ static torch::Tensor ComputeBeta(const torch::Tensor &log_probs,
   return beta;
 }
 
+static void ComputeGradient(
+    const torch::Tensor &logits, const torch::Tensor &logit_lengths,
+    const torch::Tensor &targets, const torch::Tensor &target_lengths,
+    const torch::Tensor &denominator, const torch::Tensor &alpha,
+    const torch::Tensor &beta, int32_t blank, const torch::Tensor &row_splits,
+    const torch::Tensor &row_ids, torch::Tensor *gradient) {
+  const float *p_logits = logits.data_ptr<float>();
+  const int32_t *p_logit_lengths = logit_lengths.data_ptr<int32_t>();
+  const int32_t *p_targets = targets.data_ptr<int32_t>();
+  const int32_t *p_target_lengths = target_lengths.data_ptr<int32_t>();
+  const float *p_den = denominator.data_ptr<float>();
+  const float *p_alpha = alpha.data_ptr<float>();
+  const float *p_beta = beta.data_ptr<float>();
+  const int32_t *p_row_splits = row_splits.data_ptr<int32_t>();
+  const int32_t *p_row_ids = row_ids.data_ptr<int32_t>();
+
+  float *p_grad = gradient->data_ptr<float>();
+
+  int32_t num_blocks =
+      (logits.size(0) + kMaxThreadsPerBlock - 1) / kMaxThreadsPerBlock;
+
+  ComputeGradient<<<num_blocks, kMaxThreadsPerBlock>>>(
+      p_logits, p_den, p_targets, p_logit_lengths, p_target_lengths, blank,
+      p_row_splits, p_row_ids, logits.size(0), logits.size(1), targets.size(1),
+      p_alpha, p_beta, p_grad);
+
+  auto ret = cudaGetLastError();
+  OT_CHECK_CUDA(ret);
+}
+
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
 ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
                           const torch::Tensor &logit_lengths,
@@ -171,12 +195,16 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
   // Note that it is positive at present.
   torch::Tensor denominator = logits.logsumexp(/*dim*/ 1, /*keepdim*/ false);
 
-  torch::Tensor log_probs;
-  torch::Tensor row_splits;
+  // + 1 here since each sequence is prepended with a blank
+  torch::Tensor sizes = logit_lengths * (target_lengths + 1);
+  torch::Tensor row_splits = torch::cumsum(sizes, -1, torch::kInt);
+  torch::Tensor zero = torch::zeros({1}, row_splits.options());
+  row_splits = torch::cat({zero, row_splits}, -1);
+  torch::Tensor row_ids = RowSplitsToRowIds(row_splits, logits.size(0));
 
-  std::tie(log_probs, row_splits) = ComputeLogProbs(
-      logits, denominator, targets, logit_lengths, target_lengths, blank);
-
+  torch::Tensor log_probs =
+      ComputeLogProbs(logits, denominator, targets, logit_lengths,
+                      target_lengths, row_splits, row_ids, blank);
   torch::Tensor alpha;
   torch::Tensor total_scores;
   std::tie(alpha, total_scores) =
@@ -185,7 +213,14 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
   torch::Tensor beta =
       ComputeBeta(log_probs, logit_lengths, target_lengths, row_splits);
 
-  return {total_scores, torch::Tensor()};
+  bool requires_grad = logits.requires_grad();
+  if (requires_grad) {
+    torch::Tensor &gradient = logits;
+    ComputeGradient(logits, logit_lengths, targets, target_lengths, denominator,
+                    alpha, beta, blank, row_splits, row_ids, &gradient);
+  }
+
+  return {total_scores, requires_grad ? logits : torch::Tensor()};
 }
 
 }  // namespace ot

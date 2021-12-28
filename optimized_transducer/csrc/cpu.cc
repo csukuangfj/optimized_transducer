@@ -284,7 +284,8 @@ static void ComputeGradient(
       const float *p_beta_t_p1 = p_beta + U_p1;
 
       for (int32_t u = 0; u != U_p1; ++u, p_logits += V, p_grad += V) {
-        int32_t target_u = u < U_p1 - 1 ? p_targets[u] : -1;  // -1 is not used
+        int32_t target_u =
+            (u < U_p1 - 1) ? p_targets[u] : -1;  // -1 is not used
         float c = p_alpha[u] + loss - p_den[u];
 
         for (int32_t v = 0; v != V; ++v) {
