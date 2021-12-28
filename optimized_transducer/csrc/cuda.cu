@@ -89,9 +89,7 @@ static torch::Tensor ComputeAlpha(const torch::Tensor &log_probs,
   dim3 block_dims(num_warps, max_U_p1, batch_size);
   dim3 thread_dims(kWarpSize);
 
-  // torch::Tensor alpha = torch::empty({log_probs.size(0)},
-  // log_probs.options());
-  torch::Tensor alpha = torch::ones({log_probs.size(0)}, log_probs.options());
+  torch::Tensor alpha = torch::empty({log_probs.size(0)}, log_probs.options());
   torch::Tensor counter =
       torch::zeros({batch_size * max_U_p1}, logit_lengths.options());
 
@@ -122,11 +120,8 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
   std::tie(log_probs, row_splits) = ComputeLogProbs(
       logits, denominator, targets, logit_lengths, target_lengths, blank);
 
-  std::cout << "cuda log_probs: \n" << log_probs << "\n";
-
   torch::Tensor alpha =
       ComputeAlpha(log_probs, logit_lengths, target_lengths, row_splits);
-  std::cout << "cuda alpha: \n" << alpha << "\n";
 
   torch::Tensor total_scores =
       torch::zeros({logit_lengths.size(0)}, logits.options());
