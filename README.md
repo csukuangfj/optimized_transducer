@@ -96,7 +96,7 @@ encoder_out = torch.rand(N, T, D) # from the encoder
 decoder_out = torch.rand(N, U, D) # from the decoder, i.e., the prediction network
 
 encoder_out = encoder_out.unsqueeze(2) # Now encoder out is (N, T, 1, D)
-decoder_out = decoder_out.unsqueeze(1) # Now decoder out is (N, T, 1, D)
+decoder_out = decoder_out.unsqueeze(1) # Now decoder out is (N, 1, U, D)
 
 x = encoder_out + decoder_out # x is of shape (N, T, U, D)
 activation = torch.tanh(x)
