@@ -309,7 +309,8 @@ static void ComputeGradient(
 
 // See the documentation in transducer-loss.h for the meaning of the arguments.
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
-ComputeTransducerLossCpu(torch::Tensor &logits, const torch::Tensor &targets,
+ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
+                         const torch::Tensor &targets,
                          const torch::Tensor &logit_lengths,
                          const torch::Tensor &target_lengths, int32_t blank) {
   // The denominator for the log-softmax.
