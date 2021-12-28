@@ -130,7 +130,7 @@ x = torch.cat(x)
 activation = torch.tanh(x)
 logits = linear(activation) # linear is an instance of `nn.Linear`.
 
-loss = optimized_transducer.rnnt_loss(
+loss = optimized_transducer.transducer_loss(
     logits=logits,
     targets=targets,
     logit_lengths=logit_lengths,
