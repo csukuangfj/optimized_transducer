@@ -20,6 +20,13 @@ __global__ void ComputeAlpha(const float *log_probs,
                              const int32_t *row_splits, int32_t max_T,
                              int32_t max_U_p1, int32_t *counter, float *alpha,
                              float *total_scores);
+
+__global__ void ComputeBeta(const float *log_probs,
+                            const int32_t *logit_lengths,
+                            const int32_t *target_lengths,
+                            const int32_t *row_splits, int32_t max_T,
+                            int32_t max_U_p1, int32_t *counter, float *alpha);
+
 }  // namespace ot
 
 #endif  // OPTIMIZED_TRANSDUCER_CSRC_KERNELS_H_
