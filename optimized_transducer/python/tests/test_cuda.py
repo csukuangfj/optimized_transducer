@@ -8,7 +8,7 @@ import optimized_transducer
 
 
 def test_loss():
-    if torch.cuda.is_available():
+    if not torch.cuda.is_available():
         print("cuda is not available - skipping")
         return
 
