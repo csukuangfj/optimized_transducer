@@ -9,7 +9,7 @@ to reduce the memory consumption for computing transducer loss.
 Actually, the implementation is based on [torchaudio](https://github.com/pytorch/audio),
 so the two are functionally equivalent, i.e., they produce the same output for the same input.
 
-However, this project is more memory efficient and potentially faster (**TODO** this needs
+However, this project is more memory efficient and potentially faster (**TODO:** This needs
 some benchmarks)
 
 ### How does it differ from [warp-transducer](https://github.com/HawkAaron/warp-transducer)
@@ -70,7 +70,7 @@ export OT_MAKE_ARGS="-j"
 pip install --verbose optimized_transducer
 ```
 
-It will pass `-DCMAKE_BUILD_TYPE -DOT_WITH_CUDA=OFF` to `cmake`.
+It will pass `-DCMAKE_BUILD_TYPE=Release -DOT_WITH_CUDA=OFF` to `cmake`.
 
 ### What Python versions are supported ?
 
@@ -83,7 +83,10 @@ and describe your problem there.
 
 ## Usage
 
-### Step 1: Adjust the inputs of the joint network
+`optimized_transducer` expects that the output shape of the joint network is
+**NOT** `(N, T, U, V)`, but is `(sum_all_TU, V)`, which is a concatenation
+of 2-D tensors: `(T_1 * U_1, V)`, `(T_2 * U_2, V)`, ..., `(T_N, U_N, V)`.
+**Note**: `(T_1 * U_1, V)` is just the reshape of a 3-D tensor `(T_1, U_1, V)`.
 
 
 Suppose your original joint network looks somewhat like the following:
@@ -94,8 +97,10 @@ decoder_out = torch.rand(N, U, D) # from the decoder, i.e., the prediction netwo
 
 encoder_out = encoder_out.unsqueeze(2) # Now encoder out is (N, T, 1, D)
 decoder_out = decoder_out.unsqueeze(1) # Now decoder out is (N, T, 1, D)
-x = encoder_out + decoder_out
+
+x = encoder_out + decoder_out # x is of shape (N, T, U, D)
 activation = torch.tanh(x)
+
 logits = linear(activation) # linear is an instance of `nn.Linear`.
 
 loss = torchaudio.functional.rnnt_loss(
@@ -115,8 +120,9 @@ You need to change it to the following:
 encoder_out = torch.rand(N, T, D) # from the encoder
 decoder_out = torch.rand(N, U, D) # from the decoder, i.e., the prediction network
 
-encoder_out_list = [encoder_out[i, :logit_lengths[i], :] for in range(N)]
-decoder_out_list = [decoder_out[i, :target_lengths[i]+1, :] for in range(N)]
+encoder_out_list = [encoder_out[i, :logit_lengths[i], :] for i in range(N)]
+decoder_out_list = [decoder_out[i, :target_lengths[i]+1, :] for i in range(N)]
+
 x = [e.unsqueeze(1) + d.unsqueeze(0) for e, d in zip(encoder_out_list, decoder_out_list)]
 x = [p.reshape(-1, D) for p in x]
 x = torch.cat(x)

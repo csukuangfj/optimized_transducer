@@ -93,6 +93,11 @@ def get_package_version():
 
 package_name = "optimized_transducer"
 
+with open(
+    "optimized_transducer/python/optimized_transducer/__init__.py", "a"
+) as f:
+    f.write(f"__version__ = '{get_package_version()}'\n")
+
 setuptools.setup(
     name=package_name,
     version=get_package_version(),
