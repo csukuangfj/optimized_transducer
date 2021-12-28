@@ -38,7 +38,7 @@ message(STATUS "Enabled languages: ${languages}")
 
 project(optimized_transducer ${languages})
 
-set(OT_VERSION "0.0.1")
+set(OT_VERSION "0.9")
 
 set(ALLOWABLE_BUILD_TYPES Debug Release RelWithDebInfo MinSizeRel)
 set(DEFAULT_BUILD_TYPE "Release")
@@ -52,8 +52,8 @@ elseif(NOT CMAKE_BUILD_TYPE IN_LIST ALLOWABLE_BUILD_TYPES)
     choose one from ${ALLOWABLE_BUILD_TYPES}")
 endif()
 
-option(OT_BUILD_TESTS "Whether to build tests or not" ON)
-option(BUILD_SHARED_LIBS "Whether to build shared or static lib" ON)
+option(OT_BUILD_TESTS "Whether to build tests or not" OFF)
+option(BUILD_SHARED_LIBS "Whether to build shared libs" ON)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
