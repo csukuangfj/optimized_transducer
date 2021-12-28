@@ -64,7 +64,8 @@ __global__ void ComputeAlpha(const float *log_probs,
                              const int32_t *logit_lengths,
                              const int32_t *target_lengths,
                              const int32_t *row_splits, int32_t max_T,
-                             int32_t max_U_p1, int32_t *counter, float *alpha) {
+                             int32_t max_U_p1, int32_t *counter, float *alpha,
+                             float *total_scores) {
   int32_t b = blockIdx.z;
   int32_t T = logit_lengths[b];
   int32_t U_p1 = target_lengths[b] + 1;
@@ -145,6 +146,11 @@ __global__ void ComputeAlpha(const float *log_probs,
   if (threadIdx.x == 0) {
     __threadfence();
     atomicAdd(p_counter, 1);
+  }
+
+  if ((t == T - 1) && (u == U_p1 - 1)) {
+    total_scores[b] =
+        p_alpha_t[U_p1 - 1] + (p_log_probs_t + (U_p1 - 1) * 2)[kBlankCol];
   }
 }
 

@@ -12,6 +12,15 @@ static constexpr int32_t kWarpSize = 32;
 
 namespace ot {
 
+static void CheckCuda(cudaError_t result, const char *file, int32_t line) {
+  if (result != cudaSuccess) {
+    std::ostringstream os;
+    os << file << ":" << line << ": " << cudaGetErrorString(result) << "\n";
+    throw std::runtime_error(os.str());
+  }
+}
+#define OT_CHECK_CUDA(ret) CheckCuda(ret, __FILE__, __LINE__)
+
 // See https://github.com/k2-fsa/k2/blob/master/k2/csrc/utils.cu#L75
 // for the meaning of row splits and row IDs.
 /**
@@ -73,13 +82,15 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeLogProbs(
       p_logits, p_den, p_targets, p_target_lengths, blank, p_row_splits,
       p_row_ids, logits.size(0), logits.size(1), targets.size(1), p_log_probs);
 
+  auto ret = cudaGetLastError();
+  OT_CHECK_CUDA(ret);
+
   return {log_probs, row_splits};
 }
 
-static torch::Tensor ComputeAlpha(const torch::Tensor &log_probs,
-                                  const torch::Tensor &logit_lengths,
-                                  const torch::Tensor &target_lengths,
-                                  const torch::Tensor &row_splits) {
+static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
+    const torch::Tensor &log_probs, const torch::Tensor &logit_lengths,
+    const torch::Tensor &target_lengths, const torch::Tensor &row_splits) {
   // it is prepended with a blank so we need to use +1 here
   int32_t max_T = logit_lengths.max().item<int32_t>();
   int32_t max_U_p1 = target_lengths.max().item<int32_t>() + 1;
@@ -90,6 +101,7 @@ static torch::Tensor ComputeAlpha(const torch::Tensor &log_probs,
   dim3 thread_dims(kWarpSize);
 
   torch::Tensor alpha = torch::empty({log_probs.size(0)}, log_probs.options());
+  torch::Tensor total_scores = torch::empty({batch_size}, log_probs.options());
   torch::Tensor counter =
       torch::zeros({batch_size * max_U_p1}, logit_lengths.options());
 
@@ -99,11 +111,16 @@ static torch::Tensor ComputeAlpha(const torch::Tensor &log_probs,
   const int32_t *p_row_splits = row_splits.data_ptr<int32_t>();
   int32_t *p_counter = counter.data_ptr<int32_t>();
   float *p_alpha = alpha.data_ptr<float>();
+  float *p_total_socres = total_scores.data_ptr<float>();
 
   ComputeAlpha<<<block_dims, thread_dims>>>(
       p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
-      max_U_p1, p_counter, p_alpha);
-  return alpha;
+      max_U_p1, p_counter, p_alpha, p_total_socres);
+
+  auto ret = cudaGetLastError();
+  OT_CHECK_CUDA(ret);
+
+  return {alpha, total_scores};
 }
 
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
@@ -120,11 +137,10 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
   std::tie(log_probs, row_splits) = ComputeLogProbs(
       logits, denominator, targets, logit_lengths, target_lengths, blank);
 
-  torch::Tensor alpha =
+  torch::Tensor alpha;
+  torch::Tensor total_scores;
+  std::tie(alpha, total_scores) =
       ComputeAlpha(log_probs, logit_lengths, target_lengths, row_splits);
-
-  torch::Tensor total_scores =
-      torch::zeros({logit_lengths.size(0)}, logits.options());
 
   return {total_scores, torch::Tensor()};
 }
