@@ -24,7 +24,7 @@ for the same input.
 However, `warp-transducer` produces different gradients for CPU and CUDA
 when using the same input. See <https://github.com/HawkAaron/warp-transducer/issues/93>
 
-This projects produces consistent gradient on CPU and CUDA for the same input, just like
+This project produces consistent gradient on CPU and CUDA for the same input, just like
 what `torchaudio` is doing. (We borrow the gradient computation formula from `torchaudio`).
 
 `optimized_transducer` uses less memory than that of `warp-transducer` and is potentially
