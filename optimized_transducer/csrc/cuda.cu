@@ -8,7 +8,7 @@
 #include "torch/script.h"
 
 static constexpr int32_t kMaxThreadsPerBlock = 1024;
-static constexpr int32_t kWarpSize = 32;
+// static constexpr int32_t kWarpSize = 32;
 
 namespace ot {
 
@@ -118,27 +118,33 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
 
   int32_t batch_size = logit_lengths.size(0);
 
-  int32_t num_warps = (max_T + kWarpSize - 1) / kWarpSize;
-  dim3 block_dims(num_warps, max_U_p1, batch_size);
-  dim3 thread_dims(kWarpSize);
-
   torch::Tensor alpha = torch::empty({log_probs.size(0)}, log_probs.options());
   torch::Tensor total_scores = torch::empty({batch_size}, log_probs.options());
-  torch::Tensor counter =
-      torch::zeros({batch_size * max_U_p1}, logit_lengths.options());
 
   const float *p_log_probs = log_probs.data_ptr<float>();
   const int32_t *p_logit_lengths = logit_lengths.data_ptr<int32_t>();
   const int32_t *p_target_lengths = target_lengths.data_ptr<int32_t>();
   const int32_t *p_row_splits = row_splits.data_ptr<int32_t>();
-  int32_t *p_counter = counter.data_ptr<int32_t>();
   float *p_alpha = alpha.data_ptr<float>();
   float *p_total_socres = total_scores.data_ptr<float>();
 
+#if 0
+  torch::Tensor counter =
+      torch::zeros({batch_size * max_U_p1}, logit_lengths.options());
+  int32_t *p_counter = counter.data_ptr<int32_t>();
+
+  int32_t num_warps = (max_T + kWarpSize - 1) / kWarpSize;
+  dim3 block_dims(num_warps, max_U_p1, batch_size);
+  dim3 thread_dims(kWarpSize);
   ComputeAlpha<<<block_dims, thread_dims, 0,
                  c10::cuda::getCurrentCUDAStream()>>>(
       p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
       max_U_p1, p_counter, p_alpha, p_total_socres);
+#else
+  ComputeAlpha<<<batch_size, max_U_p1, 0, c10::cuda::getCurrentCUDAStream()>>>(
+      p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
+      max_U_p1, /*counter*/ nullptr, p_alpha, p_total_socres);
+#endif
 
   auto ret = cudaGetLastError();
   OT_CHECK_CUDA(ret);
@@ -165,28 +171,33 @@ static torch::Tensor ComputeBeta(const torch::Tensor &log_probs,
 
   int32_t batch_size = logit_lengths.size(0);
 
-  int32_t num_warps = (max_T + kWarpSize - 1) / kWarpSize;
-  dim3 block_dims(num_warps, max_U_p1, batch_size);
-  dim3 thread_dims(kWarpSize);
-
-  // torch::Tensor beta = torch::empty({log_probs.size(0)},
-  // log_probs.options());
-  torch::Tensor beta = torch::ones({log_probs.size(0)}, log_probs.options());
-  torch::Tensor counter =
-      torch::zeros({batch_size * max_U_p1}, logit_lengths.options());
+  torch::Tensor beta = torch::empty({log_probs.size(0)}, log_probs.options());
 
   const float *p_log_probs = log_probs.data_ptr<float>();
   const int32_t *p_logit_lengths = logit_lengths.data_ptr<int32_t>();
   const int32_t *p_target_lengths = target_lengths.data_ptr<int32_t>();
   const int32_t *p_row_splits = row_splits.data_ptr<int32_t>();
-  int32_t *p_counter = counter.data_ptr<int32_t>();
   float *p_beta = beta.data_ptr<float>();
+
+#if 0
+  int32_t num_warps = (max_T + kWarpSize - 1) / kWarpSize;
+  dim3 block_dims(num_warps, max_U_p1, batch_size);
+  dim3 thread_dims(kWarpSize);
+
+  torch::Tensor counter =
+      torch::zeros({batch_size * max_U_p1}, logit_lengths.options());
+  int32_t *p_counter = counter.data_ptr<int32_t>();
 
   ComputeBeta<<<block_dims, thread_dims, 0,
                 c10::cuda::getCurrentCUDAStream()>>>(
       p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
       max_U_p1, p_counter, p_beta);
 
+#else
+  ComputeBeta<<<batch_size, max_U_p1, 0, c10::cuda::getCurrentCUDAStream()>>>(
+      p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
+      max_U_p1, /*counter*/ nullptr, p_beta);
+#endif
   auto ret = cudaGetLastError();
   OT_CHECK_CUDA(ret);
 
@@ -260,6 +271,7 @@ ComputeTransducerLossCuda(torch::Tensor &logits,  // NOLINT
   torch::Tensor log_probs =
       ComputeLogProbs(logits, denominator, targets, logit_lengths,
                       target_lengths, row_splits, row_ids, blank);
+
   torch::Tensor alpha;
   torch::Tensor total_scores;
   std::tie(alpha, total_scores) =
@@ -269,13 +281,14 @@ ComputeTransducerLossCuda(torch::Tensor &logits,  // NOLINT
       ComputeBeta(log_probs, logit_lengths, target_lengths, row_splits);
 
   bool requires_grad = logits.requires_grad();
+  torch::Tensor gradient;
   if (requires_grad) {
-    torch::Tensor &gradient = logits;
+    gradient = logits;  // shallow copy
     ComputeGradient(logits, logit_lengths, targets, target_lengths, denominator,
                     alpha, beta, blank, row_splits, row_ids, &gradient);
   }
 
-  return {total_scores, requires_grad ? logits : torch::Tensor()};
+  return {total_scores, gradient};
 }
 
 }  // namespace ot

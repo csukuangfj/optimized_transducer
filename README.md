@@ -1,27 +1,34 @@
 ## Introduction
 
-**Caution**: Still working in progress. The CUDA version does not work for now.
-
 This project implements the optimization techniques proposed in
 [Improving RNN Transducer Modeling for End-to-End Speech Recognition](https://arxiv.org/abs/1909.12415)
 to reduce the memory consumption for computing transducer loss.
 
 ### How does it differ from the RNN-T loss from torchaudio
 
-Actually, the implementation is based on [torchaudio](https://github.com/pytorch/audio),
-so the two are functionally equivalent, i.e., they produce the same output for the same input.
 
-However, this project is more memory efficient and potentially faster (**TODO:** This needs
-some benchmarks)
+It produces same output as [torchaudio](https://github.com/pytorch/audio)
+for the same input, so `optimizated_transducer` should be equivalent to
+[torchaudio.functional.rnnt_loss](https://github.com/pytorch/audio/blob/main/torchaudio/functional/functional.py#L1546).
+
+This project is more memory efficient and potentially faster
+(**TODO:** This needs some benchmarks)
 
 ### How does it differ from [warp-transducer](https://github.com/HawkAaron/warp-transducer)
 
-I don't have much experience with warp-transducer. But I know that warp-transducer
-produces different gradients for CPU and CUDA when using the same input. See
-<https://github.com/HawkAaron/warp-transducer/issues/93>
+It borrows the methods of computing alpha and beta from `warp-transducer`. Therefore,
+`optimized_transducer` produces the same `alpha` and `beta` as `warp-transducer`
+for the same input.
 
-`optimized_transducer` uses less memory than that of warp-transducer.
 
+However, `warp-transducer` produces different gradients for CPU and CUDA
+when using the same input. See <https://github.com/HawkAaron/warp-transducer/issues/93>
+
+This project produces consistent gradient on CPU and CUDA for the same input, just like
+what `torchaudio` is doing. (We borrow the gradient computation formula from `torchaudio`).
+
+`optimized_transducer` uses less memory than that of `warp-transducer` and is potentially
+faster. (**TODO:** This needs some benchmarks).
 
 ## Installation
 
