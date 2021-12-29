@@ -8,6 +8,12 @@ import torchaudio
 import optimized_transducer
 
 
+def assert_allclose(a: torch.Tensor, b: torch.Tensor, atol=1e-6, **kwargs):
+    assert torch.allclose(
+        a, b, atol=atol, **kwargs
+    ), f"{(a - b).abs().max()}, {a}, {b}"
+
+
 def get_devices():
     devices = [torch.device("cpu")]
     if torch.cuda.is_available():
@@ -19,11 +25,11 @@ def get_devices():
 
 
 def test_compute_transducer_loss(reduction: str, device="cpu"):
-    T1 = torch.randint(1, 100, (1,)).item()
-    T2 = torch.randint(1, 100, (1,)).item()
+    T1 = torch.randint(100, 1000, (1,)).item()
+    T2 = torch.randint(500, 2000, (1,)).item()
 
-    U1 = torch.randint(5, 100, (1,)).item()
-    U2 = torch.randint(5, 100, (1,)).item()
+    U1 = torch.randint(100, 300, (1,)).item()
+    U2 = torch.randint(20, 500, (1,)).item()
 
     V = torch.randint(5, 100, (1,)).item()
 
@@ -64,7 +70,7 @@ def test_compute_transducer_loss(reduction: str, device="cpu"):
     )
 
     loss = optimized_transducer.transducer_loss(
-        logits=logits.requires_grad_(True),
+        logits=logits,
         targets=targets,
         logit_lengths=logit_lengths,
         target_lengths=target_lengths,
@@ -78,24 +84,23 @@ def test_compute_transducer_loss(reduction: str, device="cpu"):
         logit_lengths=logit_lengths,
         target_lengths=target_lengths,
         blank=0,
-        clamp=0,
         reduction=reduction,
     )
 
-    assert torch.allclose(loss, torch_loss), (loss, torch_loss)
+    assert_allclose(loss, torch_loss, atol=1e-3), (loss, torch_loss)
     (loss.sum() * 3).backward()
     (torch_loss.sum() * 3).backward()
 
-    assert torch.allclose(
+    assert_allclose(
         logits0.grad.reshape(T1, U1, -1),
         torch_logits.grad[0, :T1, :U1, :],
-        rtol=1e-4,
+        atol=1e-3,
     )
 
-    assert torch.allclose(
+    assert_allclose(
         logits1.grad.reshape(T2, U2, -1),
         torch_logits.grad[1, :T2, :U2, :],
-        rtol=1e-4,
+        atol=1e-2,
     )
 
 

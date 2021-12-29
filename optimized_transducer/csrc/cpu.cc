@@ -206,7 +206,7 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeBeta(
     p_beta_t[-1] = (p_log_probs_t - 2)[kBlankCol];
 
     // when u = U_p1 - 1,
-    // beta(t, U_p1-1) = beta(t+1, U_p1-1) + lop_probs(t, U_p-1).blank
+    // beta(t, U_p1-1) = beta(t+1, U_p1-1) + lop_probs(t, U_p1-1).blank
     for (int32_t t = T - 2; t >= 0; --t) {
       p_beta_t = p_beta + (t + 1) * U_p1 - 1;
       float *p_beta_t_p1 = p_beta_t + U_p1;
@@ -329,13 +329,14 @@ ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
       ComputeBeta(log_probs, logit_lengths, target_lengths).first;
 
   bool requires_grad = logits.requires_grad();
+  torch::Tensor gradient;
   if (requires_grad) {
-    torch::Tensor &gradient = logits;
+    gradient = logits;  // shallow copy
     ComputeGradient(logits, logit_lengths, targets, target_lengths, denominator,
                     alpha, beta, blank, &gradient);
   }
 
-  return {total_scores, requires_grad ? logits : torch::Tensor()};
+  return {total_scores, gradient};
 }
 
 }  // namespace ot
