@@ -1,5 +1,7 @@
 ## Introduction
 
+**Caution**: Still working in progress. The CUDA version does not work for now.
+
 This project implements the optimization techniques proposed in
 [Improving RNN Transducer Modeling for End-to-End Speech Recognition](https://arxiv.org/abs/1909.12415)
 to reduce the memory consumption for computing transducer loss.
