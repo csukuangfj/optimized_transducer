@@ -13,6 +13,7 @@ class TransducerLossFunction(torch.autograd.Function):
         logit_lengths: torch.Tensor,
         target_lengths: torch.Tensor,
         blank: int,
+        from_log_softmax: bool,
         reduction: str = "mean",
     ) -> torch.Tensor:
         """
@@ -41,13 +42,14 @@ class TransducerLossFunction(torch.autograd.Function):
               in memory.
 
             Caution:
-              If it requires grad, then it shares the same memory with its
-              gradient. After the call, its original value is overwritten
-              with its gradient.
+              If it requires grad and if from_log_softmax is False,
+              then it shares the same memory with its gradient. That is, after
+              the call, its original value is overwritten with its gradient.
 
             Hint:
               `logits` contains unnormalized probabilities and it is usually the
-              output of some `nn.Linear` layer.
+              output of some `nn.Linear` layer if `from_log_softmax` is False.
+              Otherwise, `logits` should be the output of `log-softmax`.
           targets:
             A 2-D tensor of shape (batch_size, num_tokens) containing  the
             tokens in each utterance.
@@ -74,6 +76,15 @@ class TransducerLossFunction(torch.autograd.Function):
               memory. Must be on the same device as `logits`.
           blank:
             The ID of the blank symbol. Must be 0 <= blank <= logits.size(1)-1.
+          from_log_softmax:
+            If `True`, then `logits` is the output of `log-softmax`.
+            If `False`, then `logits` is the output of some `nn.Linear` layer.
+
+            Caution:
+              You should use a `False` value for it and use the output from
+              `nn.Linear` if you need to save memory usage.
+              Set it to `True` if you want to manipulate the output of
+              `log-softmax` before sending it for loss computations.
           reduction:
             Supported values are:
 
@@ -96,6 +107,7 @@ class TransducerLossFunction(torch.autograd.Function):
             logit_lengths=logit_lengths,
             target_lengths=target_lengths,
             blank=blank,
+            from_log_softmax=from_log_softmax,
         )
 
         loss = -1 * scores
@@ -120,6 +132,7 @@ class TransducerLossFunction(torch.autograd.Function):
             None,  # logit_lengths,
             None,  # target_lengths
             None,  # blank
+            None,  # from_log_softmax
             None,  # reduction
         )
 
@@ -147,6 +160,7 @@ class TransducerLoss(torch.nn.Module):
         targets: torch.Tensor,
         logit_lengths: torch.Tensor,
         target_lengths: torch.Tensor,
+        from_log_softmax: bool,
     ) -> torch.Tensor:
         """
         Args:
@@ -174,13 +188,14 @@ class TransducerLoss(torch.nn.Module):
               in memory.
 
             Caution:
-              If it requires grad, then it shares the same memory with its
-              gradient. After the call, its original value is overwritten
-              with its gradient.
+              If it requires grad and if from_log_softmax is False,
+              then it shares the same memory with its gradient. That is, after
+              the call, its original value is overwritten with its gradient.
 
             Hint:
               `logits` contains unnormalized probabilities and it is usually the
-              output of some `nn.Linear` layer.
+              output of some `nn.Linear` layer if `from_log_softmax` is False.
+              Otherwise, `logits` should be the output of `log-softmax`.
           targets:
             A 2-D tensor of shape (batch_size, num_tokens) containing  the
             tokens in each utterance.
@@ -205,6 +220,15 @@ class TransducerLoss(torch.nn.Module):
             Caution:
               Its dtype has to be torch.int32 and has to be contiguous in
               memory. Must be on the same device as `logits`.
+          from_log_softmax:
+            If `True`, then `logits` is the output of `log-softmax`.
+            If `False`, then `logits` is the output of some `nn.Linear` layer.
+
+            Caution:
+              You should use a `False` value for it and use the output from
+              `nn.Linear` if you need to save memory usage.
+              Set it to `True` if you want to manipulate the output of
+              `log-softmax` before sending it for loss computations.
         Returns:
           Return a tensor containing the losses. See the documentation above for
           `self.reduction`.
@@ -215,6 +239,7 @@ class TransducerLoss(torch.nn.Module):
             logit_lengths,
             target_lengths,
             self.blank,
+            from_log_softmax,
             self.reduction,
         )
 
@@ -225,6 +250,7 @@ def transducer_loss(
     logit_lengths: torch.Tensor,
     target_lengths: torch.Tensor,
     blank: int,
+    from_log_softmax: bool,
     reduction: str = "mean",
 ) -> torch.Tensor:
     """
@@ -253,13 +279,14 @@ def transducer_loss(
           in memory.
 
         Caution:
-          If it requires grad, then it shares the same memory with its
-          gradient. After the call, its original value is overwritten
-          with its gradient.
+          If it requires grad and if from_log_softmax is False,
+          then it shares the same memory with its gradient. That is, after
+          the call, its original value is overwritten with its gradient.
 
         Hint:
           `logits` contains unnormalized probabilities and it is usually the
-          output of some `nn.Linear` layer.
+          output of some `nn.Linear` layer if `from_log_softmax` is False.
+          Otherwise, `logits` should be the output of `log-softmax`.
       targets:
         A 2-D tensor of shape (batch_size, num_tokens) containing  the
         tokens in each utterance.
@@ -286,6 +313,16 @@ def transducer_loss(
           memory. Must be on the same device as `logits`.
       blank:
         The ID of the blank symbol. Must be 0 <= blank <= logits.size(1)-1.
+      from_log_softmax:
+        If `True`, then `logits` is the output of `log-softmax`.
+        If `False`, then `logits` is the output of some `nn.Linear` layer.
+
+        Caution:
+          You should use a `False` value for it and use the output from
+          `nn.Linear` if you need to save memory usage.
+          Set it to `True` if you want to manipulate the output of
+          `log-softmax` before sending it for loss computations.
+
       reduction:
         Supported values are:
 
@@ -303,5 +340,6 @@ def transducer_loss(
         logit_lengths,
         target_lengths,
         blank,
+        from_log_softmax,
         reduction,
     )

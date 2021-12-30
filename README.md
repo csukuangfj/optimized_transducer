@@ -8,11 +8,15 @@ to reduce the memory consumption for computing transducer loss.
 
 
 It produces same output as [torchaudio](https://github.com/pytorch/audio)
-for the same input, so `optimizated_transducer` should be equivalent to
-[torchaudio.functional.rnnt_loss](https://github.com/pytorch/audio/blob/main/torchaudio/functional/functional.py#L1546).
+for the same input, so `optimized_transducer` should be equivalent to
+[torchaudio.functional.rnnt_loss()](https://github.com/pytorch/audio/blob/main/torchaudio/functional/functional.py#L1546).
 
 This project is more memory efficient and potentially faster
 (**TODO:** This needs some benchmarks)
+
+Also, `torchaudio` accepts only output from `nn.Linear`, but
+we also support output from `log-softmax` (You can set the option
+`from_log_softmax` to `True` in this case).
 
 ### How does it differ from [warp-transducer](https://github.com/HawkAaron/warp-transducer)
 
@@ -120,7 +124,6 @@ loss = torchaudio.functional.rnnt_loss(
     blank=blank_id,
     reduction="mean",
 )
-
 ```
 
 You need to change it to the following:
@@ -146,11 +149,62 @@ loss = optimized_transducer.transducer_loss(
     target_lengths=target_lengths,
     blank=blank_id,
     reduction="mean",
+    from_log_softmax=False,
 )
 ```
+
+**Caution**: We used `from_log_softmax=False` in the above example since `logits`
+is the output of `nn.Linear`.
+
+**Hint**: If `logits` is the output of `log-softmax`, you should use `from_log_softmax=True`.
+
+In most cases, you should pass the output of `nn.Linear` to compute the loss, i.e.,
+use `from_log_softmax=False`, to save memory.
+
+If you want to do some operations on the output of `log-softmax` before feeding it
+to `optimized_transducer.transducer_loss()`, `from_log_softmax=True` is helpful in
+this case. But be aware that this will increase the memory usage.
 
 For more usages, please refer to
 
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/optimized_transducer/transducer_loss.py>
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/tests/test_cuda.py>
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/tests/test_compute_transducer_loss.py>
+
+## For developers
+
+As a developer, you don't need to use `pip install optimized_transducer`.
+To make development easier, you can use
+
+```
+git clone https://github.com/csukuangfj/optimized_transducer.git
+cd optimized_transducer
+mkdir build
+cd build
+cmake -DOT_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release ..
+export PYTHONPATH=$PWD/../optimized_transducer/python:$PWD/lib:$PYTHONPATH
+```
+
+I usually create a file `path.sh` inside the `build` direcotry, containing
+
+```
+export PYTHONPATH=$PWD/../optimized_transducer/python:$PWD/lib:$PYTHONPATH
+```
+
+so what you need to do is
+```
+cd optimized_transducer/build
+source path.sh
+
+# Then you are ready to run Python tests
+python3 optimized_transducer/python/tests/test_compute_transducer_loss.py
+
+# You can also use "import optimized_transducer" in your Python projects
+```
+
+To run all Python tests, use
+
+```
+cd optimized_transducer/build
+ctest --output-on-failure
+```

@@ -19,6 +19,7 @@ endfunction()
 set(py_test_files
   test_compute_transducer_loss.py
   test_cuda.py
+  test_log_softmax.py
 )
 
 foreach(source IN LISTS py_test_files)

@@ -14,7 +14,7 @@ PYBIND11_MODULE(_optimized_transducer, m) {
 
   m.def("compute_transducer_loss", &ComputeTransducerLoss, py::arg("logits"),
         py::arg("targets"), py::arg("logit_lengths"), py::arg("target_lengths"),
-        py::arg("blank"));
+        py::arg("blank"), py::arg("from_log_softmax"));
 }
 
 }  // namespace ot

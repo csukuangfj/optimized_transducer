@@ -19,6 +19,8 @@ namespace ot {
                        acoustic frames from the encoder.
   @param target_lengths A 1-D tensor of shape (N, ) containing the input
                         sequence length of each utterance for the decoder.
+  @param from_log_softmax If true, `logits` is the output of `log-softmax`;
+                          If false, `logits` is the output of `nn.Linear`.
   @return Return a pair containing
           - the loss, which is a 1-D tensor of shape (N,)
           - the gradient, it is empty if logits does not require grad.
@@ -27,7 +29,7 @@ namespace ot {
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
     const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
-    int32_t blank);
+    int32_t blank, bool from_log_softmax);
 
 }  // namespace ot
 

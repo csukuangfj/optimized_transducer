@@ -39,6 +39,15 @@ static float LogSumExp(float a, float b) {
    Return a tensor of shape (logits.size(0), 2). Column 0 contains the log-prob
    for non-emit, i.e., horizontal transition from t to t+1. Column 1 contains
    the log-prob for emit, i.e., vertical transition from u to u+1.
+
+   @param logits  Output of some `nn.Linear` layer with shape
+                  (sum_all_TU, vocab_size).
+   @param denominator  A 1-D tensor of shape (sum_all_TU,)
+   @param targets  A 2-D tensor of shape (batch_size, max_U). It
+                   is NOT prepended with a blank.
+   @param logit_lengths A 1-D tensor of shape (batch_size,)
+   @param target_lengths A 1-D tensor of shape (batch_size,)
+   @param blank The ID of the blank symbol.
  */
 static torch::Tensor ComputeLogProbs(const torch::Tensor &logits,
                                      const torch::Tensor &denominator,
@@ -82,6 +91,61 @@ static torch::Tensor ComputeLogProbs(const torch::Tensor &logits,
         // for non-blank
         if (u < U_p1 - 1) {
           p_log_probs[kSymCol] = p_logits[p_targets[u]] - *p_den;
+        }
+      }
+    }
+  }
+
+  return log_probs;
+}
+
+/* Compute the emit and non-emit log probabilities for each (t, u) in the grid.
+
+   Return a tensor of shape (logits.size(0), 2). Column 0 contains the log-prob
+   for non-emit, i.e., horizontal transition from t to t+1. Column 1 contains
+   the log-prob for emit, i.e., vertical transition from u to u+1.
+
+   @param logits  Output of some `log-softmax` layer with shape
+                      (sum_all_TU, vocab_size).
+   @param targets  A 2-D tensor of shape (batch_size, max_U). It
+                   is NOT prepended with a blank.
+   @param logit_lengths A 1-D tensor of shape (batch_size,)
+   @param target_lengths A 1-D tensor of shape (batch_size,)
+   @param blank The ID of the blank symbol.
+ */
+static torch::Tensor ComputeLogProbsForLogSoftmax(
+    const torch::Tensor &logits, const torch::Tensor &targets,
+    const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
+    int32_t blank) {
+  torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
+                                         logit_lengths.numel());
+
+  torch::ArrayRef<int32_t> target_len_arr(target_lengths.data_ptr<int32_t>(),
+                                          target_lengths.numel());
+  int32_t batch_size = targets.size(0);
+
+  torch::Tensor log_probs = torch::empty({logits.size(0), 2}, logits.options());
+
+  const float *p_logits = logits.data_ptr<float>();
+  float *p_log_probs = log_probs.data_ptr<float>();
+  const int32_t *p_targets = targets.data_ptr<int32_t>();
+
+  int32_t V = logits.size(1);  // vocabulary size including blank
+
+  for (int32_t b = 0; b != batch_size; ++b, p_targets += targets.size(1)) {
+    int32_t T = logit_len_arr[b];
+
+    // p1 means plus one
+    // We need to plus one since it is prepended with a blank
+    int32_t U_p1 = target_len_arr[b] + 1;
+    for (int32_t t = 0; t != T; ++t) {
+      for (int32_t u = 0; u != U_p1; ++u, p_log_probs += 2, p_logits += V) {
+        // for blank
+        p_log_probs[kBlankCol] = p_logits[blank];
+
+        // for non-blank
+        if (u < U_p1 - 1) {
+          p_log_probs[kSymCol] = p_logits[p_targets[u]];
         }
       }
     }
@@ -244,6 +308,21 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeBeta(
   return {beta, total_scores};
 }
 
+/**
+   @param logits The output of `nn.Linear` with shape (sum_all_TU, vocab_size)
+   @param logit_lengths A 1-D tensor of shape (batch_size,)
+   @param targets  A 2-D tensor of shape (batch_size, max_U). It
+                   is NOT prepended with a blank.
+   @param target_lengths A 1-D tensor of shape (batch_size,)
+   @param denominator A 1-D tensor of shape (sum_all_TU,)
+   @param alpha  A 1-D tensor of shape (sum_all_TU,)
+   @param beta  A 1-D tensor of shape (sum_all_TU,)
+   @param blank The ID of the blank symbol.
+   @param gradient A 2-D tensor of shape (sum_all_TU, vocab_size).
+                   Note: It may share the same memory with `logits`.
+
+   Caution: This function assumes `logits` is the output of `nn.Linear`.
+ */
 static void ComputeGradient(
     const torch::Tensor &logits, const torch::Tensor &logit_lengths,
     const torch::Tensor &targets, const torch::Tensor &target_lengths,
@@ -292,7 +371,7 @@ static void ComputeGradient(
           float g = p_logits[v] + c;
 
           if (v == blank && t == T - 1 && u == U_p1 - 1) {
-            // last blank transition
+            // the last blank transition
             p_grad[v] = std::exp(g + p_beta[u]) - std::exp(g);
           } else if (v == blank && t < T - 1) {
             p_grad[v] = std::exp(g + p_beta[u]) - std::exp(g + p_beta_t_p1[u]);
@@ -307,18 +386,92 @@ static void ComputeGradient(
   }
 }
 
+/**
+   @param logits The output of log-softmax with shape (sum_all_TU, vocab_size)
+   @param logit_lengths A 1-D tensor of shape (batch_size,)
+   @param targets  A 2-D tensor of shape (batch_size, max_U). It
+                   is NOT prepended with a blank.
+   @param target_lengths A 1-D tensor of shape (batch_size,)
+   @param alpha  A 1-D tensor of shape (sum_all_TU,)
+   @param beta  A 1-D tensor of shape (sum_all_TU,)
+   @param blank The ID of the blank symbol.
+   @param gradient A 2-D tensor of shape (sum_all_TU, vocab_size)
+
+  Caution: This function assumes `logits` is the output of log-softmax.
+ */
+static void ComputeGradientForLogSoftmax(
+    const torch::Tensor &logits, const torch::Tensor &logit_lengths,
+    const torch::Tensor &targets, const torch::Tensor &target_lengths,
+    const torch::Tensor &alpha, const torch::Tensor &beta, int32_t blank,
+    torch::Tensor *gradient) {
+  torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
+                                         logit_lengths.numel());
+
+  torch::ArrayRef<int32_t> target_len_arr(target_lengths.data_ptr<int32_t>(),
+                                          target_lengths.numel());
+
+  const float *p_logits = logits.data_ptr<float>();
+  const float *p_alpha = alpha.data_ptr<float>();
+  const float *p_beta = beta.data_ptr<float>();
+  float *p_grad = gradient->data_ptr<float>();
+  const int32_t *p_targets = targets.data_ptr<int32_t>();
+  int32_t V = logits.size(1);  // vocabulary size including blank
+  int32_t batch_size = logit_lengths.size(0);
+  for (int32_t b = 0; b != batch_size; ++b, p_targets += targets.size(1)) {
+    int32_t T = logit_len_arr[b];
+
+    // p1 means plus one
+    // We need to plus one since it is prepended with a blank
+    int32_t U_p1 = target_len_arr[b] + 1;
+
+    float loss = -p_beta[0];
+    for (int32_t t = 0; t != T; ++t, p_alpha += U_p1, p_beta += U_p1) {
+      const float *p_beta_t_p1 = p_beta + U_p1;
+
+      for (int32_t u = 0; u != U_p1; ++u, p_logits += V, p_grad += V) {
+        int32_t target_u =
+            (u < U_p1 - 1) ? p_targets[u] : -1;  // -1 is not used
+        float c = p_alpha[u] + loss;
+
+        for (int32_t v = 0; v != V; ++v) {
+          float g = p_logits[v] + c;
+          if (v == blank && t == T - 1 && u == U_p1 - 1) {
+            // the last blank transition
+            p_grad[v] = -std::exp(g);
+          } else if (v == blank && t < T - 1) {
+            p_grad[v] = -std::exp(g + p_beta_t_p1[u]);
+          } else if (u < U_p1 - 1 && v == target_u) {
+            p_grad[v] = -std::exp(g + p_beta[u + 1]);
+          } else {
+            p_grad[v] = 0;
+          }
+        }
+      }
+    }
+  }
+}
+
 // See the documentation in transducer-loss.h for the meaning of the arguments.
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
 ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
                          const torch::Tensor &targets,
                          const torch::Tensor &logit_lengths,
-                         const torch::Tensor &target_lengths, int32_t blank) {
-  // The denominator for the log-softmax.
-  // Note that it is positive at present.
-  torch::Tensor denominator = logits.logsumexp(/*dim*/ 1, /*keepdim*/ false);
+                         const torch::Tensor &target_lengths, int32_t blank,
+                         bool from_log_softmax) {
+  torch::Tensor denominator;  // The denominator for the log-softmax.
+                              // Used only when from_log_softmax is False
 
-  torch::Tensor log_probs = ComputeLogProbs(
-      logits, denominator, targets, logit_lengths, target_lengths, blank);
+  torch::Tensor log_probs;
+  if (from_log_softmax) {
+    // logits is the output of `log-softmax`.
+    log_probs = ComputeLogProbsForLogSoftmax(logits, targets, logit_lengths,
+                                             target_lengths, blank);
+  } else {
+    // logits is the output of `nn.Linear`.
+    denominator = logits.logsumexp(/*dim*/ 1, /*keepdim*/ false);
+    log_probs = ComputeLogProbs(logits, denominator, targets, logit_lengths,
+                                target_lengths, blank);
+  }
 
   torch::Tensor alpha;
   torch::Tensor total_scores;
@@ -331,9 +484,16 @@ ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
   bool requires_grad = logits.requires_grad();
   torch::Tensor gradient;
   if (requires_grad) {
-    gradient = logits;  // shallow copy
-    ComputeGradient(logits, logit_lengths, targets, target_lengths, denominator,
-                    alpha, beta, blank, &gradient);
+    if (from_log_softmax) {
+      gradient = torch::empty_like(logits);
+      ComputeGradientForLogSoftmax(logits, logit_lengths, targets,
+                                   target_lengths, alpha, beta, blank,
+                                   &gradient);
+    } else {
+      gradient = logits;  // shallow copy
+      ComputeGradient(logits, logit_lengths, targets, target_lengths,
+                      denominator, alpha, beta, blank, &gradient);
+    }
   }
 
   return {total_scores, gradient};
