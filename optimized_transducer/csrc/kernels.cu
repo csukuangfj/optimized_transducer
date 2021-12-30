@@ -529,6 +529,8 @@ __global__ void ComputeGradientForLogSoftmax(
       val = -expf(g + p_beta_t_p1[u]);
     } else if (u < U_p1 - 1 && v == target_u) {
       val = -expf(g + p_beta_t[u + 1]);
+    } else {
+      val = 0;
     }
 
     p_grad_t_u[v] = val;

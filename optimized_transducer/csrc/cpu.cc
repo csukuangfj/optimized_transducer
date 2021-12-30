@@ -442,6 +442,8 @@ static void ComputeGradientForLogSoftmax(
             p_grad[v] = -std::exp(g + p_beta_t_p1[u]);
           } else if (u < U_p1 - 1 && v == target_u) {
             p_grad[v] = -std::exp(g + p_beta[u + 1]);
+          } else {
+            p_grad[v] = 0;
           }
         }
       }

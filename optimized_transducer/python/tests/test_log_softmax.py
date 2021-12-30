@@ -23,11 +23,11 @@ def get_devices():
 
 def test(reduction, device="cpu"):
     torch.manual_seed(20211230)
-    T1 = 3
-    T2 = 2
+    T1 = 8
+    T2 = 5
 
-    U1 = 2
-    U2 = 3
+    U1 = 4
+    U2 = 5
 
     V = 3
 
