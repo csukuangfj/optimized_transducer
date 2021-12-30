@@ -9,9 +9,7 @@ import optimized_transducer
 
 
 def assert_allclose(a: torch.Tensor, b: torch.Tensor, atol=1e-6, **kwargs):
-    assert torch.allclose(
-        a, b, atol=atol, **kwargs
-    ), f"{(a - b).abs().max()}, {a}, {b}"
+    assert torch.allclose(a, b, atol=atol, **kwargs), f"{(a - b).abs().max()}, {a}, {b}"
 
 
 def get_devices():
@@ -24,7 +22,9 @@ def get_devices():
     return devices
 
 
-def test_compute_transducer_loss(reduction: str, device="cpu"):
+def test_compute_transducer_loss(
+    reduction: str = "mean", from_log_softmax: bool = False, device="cpu"
+):
     T1 = torch.randint(100, 1000, (1,)).item()
     T2 = torch.randint(500, 2000, (1,)).item()
 
@@ -65,10 +65,10 @@ def test_compute_transducer_loss(reduction: str, device="cpu"):
 
     logit_lengths = torch.tensor([T1, T2], dtype=torch.int32, device=device)
 
-    target_lengths = (
-        torch.tensor([U1, U2], dtype=torch.int32, device=device) - 1
-    )
+    target_lengths = torch.tensor([U1, U2], dtype=torch.int32, device=device) - 1
 
+    if from_log_softmax:
+        logits = logits.log_softmax(dim=-1)
     loss = optimized_transducer.transducer_loss(
         logits=logits,
         targets=targets,
@@ -76,6 +76,7 @@ def test_compute_transducer_loss(reduction: str, device="cpu"):
         target_lengths=target_lengths,
         blank=0,
         reduction=reduction,
+        from_log_softmax=from_log_softmax,
     )
 
     torch_loss = torchaudio.functional.rnnt_loss(
@@ -109,8 +110,9 @@ def main():
     print("devices", devices)
     for device in devices:
         for reduction in ["mean", "sum"]:
-            print(device, reduction)
-            test_compute_transducer_loss(reduction, device=device)
+            for from_log_softmax in [False, True]:
+                print(device, reduction, from_log_softmax)
+                test_compute_transducer_loss(reduction, from_log_softmax, device=device)
 
 
 if __name__ == "__main__":

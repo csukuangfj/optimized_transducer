@@ -7,7 +7,7 @@ import torch
 import optimized_transducer
 
 
-def test_loss():
+def test_loss(from_log_softmax: bool = False):
     if not torch.cuda.is_available():
         print("cuda is not available - skipping")
         return
@@ -32,12 +32,16 @@ def test_loss():
 
     logits = torch.cat([logits0, logits1])
 
+    if from_log_softmax:
+        logits = logits.log_softmax(dim=-1)
+
     loss = optimized_transducer.transducer_loss(
         logits=logits,
         targets=targets,
         logit_lengths=logit_lengths,
         target_lengths=target_lengths,
         blank=0,
+        from_log_softmax=from_log_softmax,
     )
     loss.backward()
     print(loss)
@@ -57,6 +61,7 @@ def test_loss():
         logit_lengths=logit_lengths,
         target_lengths=target_lengths,
         blank=0,
+        from_log_softmax=False,
     )
     loss_cuda.backward()
 
@@ -66,8 +71,8 @@ def test_loss():
 
 
 def main():
-    #  test_row_splits()
-    test_loss()
+    for from_log_softmax in [True, False]:
+        test_loss(from_log_softmax)
 
 
 if __name__ == "__main__":

@@ -120,7 +120,6 @@ loss = torchaudio.functional.rnnt_loss(
     blank=blank_id,
     reduction="mean",
 )
-
 ```
 
 You need to change it to the following:
@@ -146,8 +145,21 @@ loss = optimized_transducer.transducer_loss(
     target_lengths=target_lengths,
     blank=blank_id,
     reduction="mean",
+    from_log_softmax=False,
 )
 ```
+
+**Caution**: We used `from_log_softmax=False` in the above example since `logits`
+is the output of `nn.Linear`.
+
+**Hint**: If `logits` is the output of `log-softmax`, you should use `from_log_softmax=True`.
+
+In most cases, you should pass the output of `nn.Linear` to compute the loss, i.e.,
+use `from_log_softmax=False`, to save memory.
+
+If you want to do some operations on the output of `log-softmax` before feeding it
+to `optimized_transducer.transducer_loss()`, `from_log_softmax=True` is helpful in
+this case. But be aware that this will increase the memory usage.
 
 For more usages, please refer to
 
