@@ -38,7 +38,7 @@ message(STATUS "Enabled languages: ${languages}")
 
 project(optimized_transducer ${languages})
 
-set(OT_VERSION "1.1")
+set(OT_VERSION "1.2")
 
 set(ALLOWABLE_BUILD_TYPES Debug Release RelWithDebInfo MinSizeRel)
 set(DEFAULT_BUILD_TYPE "Release")
