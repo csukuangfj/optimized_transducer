@@ -42,6 +42,14 @@ You can install it via `pip`:
 pip install optimized_transducer
 ```
 
+To check that `optimized_transducer` was installed successfully, please run
+
+```
+python3 -c "import optimized_transducer; print(optimized_transducer.__version__)"
+```
+
+which should print the version of the installed `optimized_transducer`, e.g., `1.2`.
+
 ### Installation FAQ
 
 ### What operating systems are supported ?
