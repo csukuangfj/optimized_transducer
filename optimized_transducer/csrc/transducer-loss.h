@@ -14,7 +14,7 @@ namespace ot {
                  \sum_i (T_i * U_i), where `T_i` is the logit_lengths[i] and
                  `U_i` is `target_lengths[i]` + 1. V is the vocabulary size
                  including the blank.
-  @param targets A 1-D tensor of shape (N, ), where N is the batch size.
+  @param targets A 2-D tensor of shape (N, U), where N is the batch size.
   @param logit_lengths A 1-D tensor of shape (N, ) containing number of output
                        acoustic frames from the encoder.
   @param target_lengths A 1-D tensor of shape (N, ) containing the input
