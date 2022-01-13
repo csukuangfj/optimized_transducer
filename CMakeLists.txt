@@ -14,6 +14,9 @@ cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 set(languages CXX)
 set(_OT_WITH_CUDA ON)
 
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 find_program(OT_HAS_NVCC nvcc)
 if(NOT OT_HAS_NVCC AND "$ENV{CUDACXX}" STREQUAL "")
   message(STATUS "No NVCC detected. Disable CUDA support")
