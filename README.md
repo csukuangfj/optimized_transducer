@@ -190,10 +190,11 @@ cd optimized_transducer
 mkdir build
 cd build
 cmake -DOT_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release ..
+make -j
 export PYTHONPATH=$PWD/../optimized_transducer/python:$PWD/lib:$PYTHONPATH
 ```
 
-I usually create a file `path.sh` inside the `build` direcotry, containing
+I usually create a file `path.sh` inside the `build` directory, containing
 
 ```
 export PYTHONPATH=$PWD/../optimized_transducer/python:$PWD/lib:$PYTHONPATH
