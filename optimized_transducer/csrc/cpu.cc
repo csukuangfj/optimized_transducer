@@ -247,10 +247,7 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlphaOneSymPerFrame(
     const torch::Tensor &log_probs, const torch::Tensor &logit_lengths,
     const torch::Tensor &target_lengths) {
   int32_t batch_size = logit_lengths.size(0);
-  // torch::Tensor alpha = torch::empty({log_probs.size(0)},
-  // log_probs.options());
-  torch::Tensor alpha =
-      torch::ones({log_probs.size(0)}, log_probs.options()) * 10;
+  torch::Tensor alpha = torch::empty({log_probs.size(0)}, log_probs.options());
   torch::Tensor total_scores = torch::empty({batch_size}, log_probs.options());
 
   torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
@@ -282,11 +279,11 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlphaOneSymPerFrame(
     int32_t diff = T - 1 - (U_p1 - 1);
     // when u = 0, alpha(t, 0) = alpha(t-1, 0) + log_probs(t-1, 0).blank
     for (int32_t t = 1; t <= diff; ++t) {
-      p_alpha_t[0] = p_alpha_tm1[0] + p_log_probs_tm1[kBlankCol];
+      p_alpha_tm1 = p_alpha + (t - 1) * U_p1;
+      p_alpha_t = p_alpha + t * U_p1;
+      p_log_probs_tm1 = p_log_probs + (t - 1) * U_p1 * 2;
 
-      p_alpha_tm1 = p_alpha_t;
-      p_alpha_t += U_p1;
-      p_log_probs_tm1 += U_p1 * 2;
+      p_alpha_t[0] = p_alpha_tm1[0] + p_log_probs_tm1[kBlankCol];
     }
 
     for (int32_t t = 1; t != T; ++t) {
@@ -298,9 +295,9 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlphaOneSymPerFrame(
         if (u > t || t - u > diff) {
           continue;
         } else if (t == u) {
-          // alpha(t, u) = alpha(t-1, u-1) + log_probs(t-1, u-1)
+          // alpha(t, u) = alpha(t-1, u-1) + log_probs(t-1, u-1).symbol
           p_alpha_t[u] =
-              p_alpha_tm1[u - 1] + (p_log_probs_tm1 + (u - 1) * 2)[kBlankCol];
+              p_alpha_tm1[u - 1] + (p_log_probs_tm1 + (u - 1) * 2)[kSymCol];
         } else {
           // alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_probs(t-1, u).blank,
           //                      alpha(t-1, u-1) + log_probs(t-1, u-1).symbol)
@@ -384,6 +381,74 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeBeta(
   return {beta, total_scores};
 }
 
+static std::pair<torch::Tensor, torch::Tensor> ComputeBetaOneSymPerFrame(
+    const torch::Tensor &log_probs, const torch::Tensor &logit_lengths,
+    const torch::Tensor &target_lengths) {
+  int32_t batch_size = logit_lengths.size(0);
+  torch::Tensor beta = torch::empty({log_probs.size(0)}, log_probs.options());
+  torch::Tensor total_scores = torch::empty({batch_size}, log_probs.options());
+
+  torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
+                                         logit_lengths.numel());
+
+  torch::ArrayRef<int32_t> target_len_arr(target_lengths.data_ptr<int32_t>(),
+                                          target_lengths.numel());
+
+  const float *p_log_probs = log_probs.data_ptr<float>();
+  float *p_beta = beta.data_ptr<float>();
+  float *p_total_scores = total_scores.data_ptr<float>();
+  for (int32_t b = 0; b != batch_size; ++b) {
+    int32_t T = logit_len_arr[b];
+
+    // p1 means plus one
+    // We need to plus one since it is prepended with a blank
+    int32_t U_p1 = target_len_arr[b] + 1;
+    float *p_beta_t = p_beta + T * U_p1;
+
+    const float *p_log_probs_t = p_log_probs + T * U_p1 * 2;
+    // beta(T-1, U_p1-1)
+    p_beta_t[-1] = (p_log_probs_t - 2)[kBlankCol];
+
+    int32_t diff = T - 1 - (U_p1 - 1);
+
+    float *p_beta_t_p1;
+
+    // u = U_p1 - 1
+    for (int32_t t = T - 2; t >= U_p1 - 1; --t) {
+      // beta(t, U_p1-1) = beta(t+1, U_p1-1) + log_probs(t, U_p1-1).blank
+      p_beta_t = p_beta + t * U_p1;
+      p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+      p_log_probs_t = p_log_probs + t * U_p1 * 2;
+      p_beta_t[U_p1 - 1] =
+          p_beta_t_p1[U_p1 - 1] + (p_log_probs_t + (U_p1 - 1) * 2)[kBlankCol];
+    }
+    for (int32_t t = T - 2; t >= 0; --t) {
+      p_beta_t = p_beta + t * U_p1;
+      p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+      p_log_probs_t = p_log_probs + t * U_p1 * 2;
+      for (int32_t u = U_p1 - 2; u >= 0; --u) {
+        if (u > t || t - u > diff) {
+          continue;
+        } else if (t - u == diff) {
+          // beta(t, u) = beta(t+1, u+1) + log_probs(t, u).symbol
+          p_beta_t[u] = p_beta_t_p1[u + 1] + (p_log_probs_t + u * 2)[kSymCol];
+        } else {
+          // beta(t, u) = log_sum_exp(beta(t+1, u) + log_probs(t, u).blank,
+          //                          beta(t+1, u+1) + log_probs(t, u).symbol)
+          p_beta_t[u] =
+              LogSumExp(p_beta_t_p1[u] + (p_log_probs_t + u * 2)[kBlankCol],
+                        p_beta_t_p1[u + 1] + (p_log_probs_t + u * 2)[kSymCol]);
+        }
+      }
+    }
+
+    // total_scores =  beta(0, 0)
+    p_total_scores[b] = p_beta[0];
+    p_beta += T * U_p1;
+    p_log_probs += T * U_p1 * 2;
+  }
+  return {beta, total_scores};
+}
 /**
    @param logits The output of `nn.Linear` with shape (sum_all_TU, vocab_size)
    @param logit_lengths A 1-D tensor of shape (batch_size,)
@@ -558,10 +623,22 @@ ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
     std::tie(alpha, total_scores) =
         ComputeAlpha(log_probs, logit_lengths, target_lengths);
   }
-  return {alpha, total_scores};
 
-  torch::Tensor beta =
-      ComputeBeta(log_probs, logit_lengths, target_lengths).first;
+  torch::Tensor beta;
+  torch::Tensor total_scores_2;
+  if (one_sym_per_frame) {
+    std::tie(beta, total_scores_2) =
+        ComputeBetaOneSymPerFrame(log_probs, logit_lengths, target_lengths);
+  } else {
+    std::tie(beta, total_scores_2) =
+        ComputeBeta(log_probs, logit_lengths, target_lengths);
+  }
+
+  TORCH_CHECK(
+      torch::allclose(total_scores, total_scores_2),
+      "total scores computed from forward/backward passes are not equal");
+
+  return {beta, total_scores_2};
 
   bool requires_grad = logits.requires_grad();
   torch::Tensor gradient;

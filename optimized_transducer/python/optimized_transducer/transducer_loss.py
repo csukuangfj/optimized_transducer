@@ -288,7 +288,7 @@ class TransducerLoss(torch.nn.Module):
                                        alpha(t, u-1) + log_prob(t, u-1).symbol);
 
                      (t-1, u) ---> (t, u)
-                                  _
+                                  _.
                                   /|
                                 /
                               /
