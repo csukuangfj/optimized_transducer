@@ -243,6 +243,82 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
   return {alpha, total_scores};
 }
 
+static std::pair<torch::Tensor, torch::Tensor> ComputeAlphaOneSymPerFrame(
+    const torch::Tensor &log_probs, const torch::Tensor &logit_lengths,
+    const torch::Tensor &target_lengths) {
+  int32_t batch_size = logit_lengths.size(0);
+  // torch::Tensor alpha = torch::empty({log_probs.size(0)},
+  // log_probs.options());
+  torch::Tensor alpha =
+      torch::ones({log_probs.size(0)}, log_probs.options()) * 10;
+  torch::Tensor total_scores = torch::empty({batch_size}, log_probs.options());
+
+  torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
+                                         logit_lengths.numel());
+
+  torch::ArrayRef<int32_t> target_len_arr(target_lengths.data_ptr<int32_t>(),
+                                          target_lengths.numel());
+
+  const float *p_log_probs = log_probs.data_ptr<float>();
+  float *p_alpha = alpha.data_ptr<float>();
+
+  float *p_total_scores = total_scores.data_ptr<float>();
+
+  for (int32_t b = 0; b != batch_size; ++b) {
+    int32_t T = logit_len_arr[b];
+
+    // p1 means plus one
+    // We need to plus one since it is prepended with a blank
+    int32_t U_p1 = target_len_arr[b] + 1;
+
+    // alpha(0, 0) = 0
+    p_alpha[0] = 0;
+
+    float *p_alpha_tm1 = p_alpha;  // tm1 means t minus 1
+    float *p_alpha_t = p_alpha_tm1 + U_p1;
+
+    const float *p_log_probs_tm1 = p_log_probs;
+
+    int32_t diff = T - 1 - (U_p1 - 1);
+    // when u = 0, alpha(t, 0) = alpha(t-1, 0) + log_probs(t-1, 0).blank
+    for (int32_t t = 1; t <= diff; ++t) {
+      p_alpha_t[0] = p_alpha_tm1[0] + p_log_probs_tm1[kBlankCol];
+
+      p_alpha_tm1 = p_alpha_t;
+      p_alpha_t += U_p1;
+      p_log_probs_tm1 += U_p1 * 2;
+    }
+
+    for (int32_t t = 1; t != T; ++t) {
+      p_alpha_tm1 = p_alpha + (t - 1) * U_p1;
+      p_alpha_t = p_alpha + t * U_p1;
+      p_log_probs_tm1 = p_log_probs + (t - 1) * U_p1 * 2;
+
+      for (int32_t u = 1; u != U_p1; ++u) {
+        if (u > t || t - u > diff) {
+          continue;
+        } else if (t == u) {
+          // alpha(t, u) = alpha(t-1, u-1) + log_probs(t-1, u-1)
+          p_alpha_t[u] =
+              p_alpha_tm1[u - 1] + (p_log_probs_tm1 + (u - 1) * 2)[kBlankCol];
+        } else {
+          // alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_probs(t-1, u).blank,
+          //                      alpha(t-1, u-1) + log_probs(t-1, u-1).symbol)
+          p_alpha_t[u] = LogSumExp(
+              p_alpha_tm1[u] + (p_log_probs_tm1 + u * 2)[kBlankCol],
+              p_alpha_tm1[u - 1] + (p_log_probs_tm1 + (u - 1) * 2)[kSymCol]);
+        }
+      }
+    }
+
+    p_alpha += T * U_p1;
+    p_log_probs += T * U_p1 * 2;
+    // total_scores =  alpha(T-1, U-1) + log_probs(T-1, U-1).blank
+    p_total_scores[b] = p_alpha[-1] + (p_log_probs - 2)[kBlankCol];
+  }
+  return {alpha, total_scores};
+}
+
 static std::pair<torch::Tensor, torch::Tensor> ComputeBeta(
     const torch::Tensor &log_probs, const torch::Tensor &logit_lengths,
     const torch::Tensor &target_lengths) {
@@ -457,7 +533,7 @@ ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
                          const torch::Tensor &targets,
                          const torch::Tensor &logit_lengths,
                          const torch::Tensor &target_lengths, int32_t blank,
-                         bool from_log_softmax) {
+                         bool from_log_softmax, bool one_sym_per_frame) {
   torch::Tensor denominator;  // The denominator for the log-softmax.
                               // Used only when from_log_softmax is False
 
@@ -475,8 +551,14 @@ ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
 
   torch::Tensor alpha;
   torch::Tensor total_scores;
-  std::tie(alpha, total_scores) =
-      ComputeAlpha(log_probs, logit_lengths, target_lengths);
+  if (one_sym_per_frame) {
+    std::tie(alpha, total_scores) =
+        ComputeAlphaOneSymPerFrame(log_probs, logit_lengths, target_lengths);
+  } else {
+    std::tie(alpha, total_scores) =
+        ComputeAlpha(log_probs, logit_lengths, target_lengths);
+  }
+  return {alpha, total_scores};
 
   torch::Tensor beta =
       ComputeBeta(log_probs, logit_lengths, target_lengths).first;

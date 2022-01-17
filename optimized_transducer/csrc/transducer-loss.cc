@@ -10,7 +10,7 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>>
 ComputeTransducerLossCpu(torch::Tensor &logits, const torch::Tensor &targets,
                          const torch::Tensor &logit_lengths,
                          const torch::Tensor &target_lengths, int32_t blank,
-                         bool from_log_softmax);
+                         bool from_log_softmax, bool one_sym_per_frame);
 
 std::pair<torch::Tensor, torch::optional<torch::Tensor>>
 ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
@@ -21,7 +21,7 @@ ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
     const torch::Tensor &logit_lengths, const torch::Tensor &target_lengths,
-    int32_t blank, bool from_log_softmax) {
+    int32_t blank, bool from_log_softmax, bool one_sym_per_frame) {
   auto logits_arg = torch::TensorArg(logits, "logits", 0);
   auto targets_arg = torch::TensorArg(targets, "targets", 1);
   auto logit_lengths_arg = torch::TensorArg(logit_lengths, "logit_lengths", 2);
@@ -70,7 +70,8 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
                            {logits, targets, logit_lengths, target_lengths},
                            torch::kCPU);
     return ComputeTransducerLossCpu(logits, targets, logit_lengths,
-                                    target_lengths, blank, from_log_softmax);
+                                    target_lengths, blank, from_log_softmax,
+                                    one_sym_per_frame);
   } else {
 #ifdef OT_WITH_CUDA
     torch::checkAllSameGPU(
