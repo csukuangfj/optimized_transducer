@@ -18,6 +18,9 @@ Also, `torchaudio` accepts only output from `nn.Linear`, but
 we also support output from `log-softmax` (You can set the option
 `from_log_softmax` to `True` in this case).
 
+It also supports a **modified** version of transducer. See [below](#modified-transducer) for what
+the meaning of **modified** is.
+
 ### How does it differ from [warp-transducer](https://github.com/HawkAaron/warp-transducer)
 
 It borrows the methods of computing alpha and beta from `warp-transducer`. Therefore,
@@ -33,6 +36,9 @@ what `torchaudio` is doing. (We borrow the gradient computation formula from `to
 
 `optimized_transducer` uses less memory than that of `warp-transducer` and is potentially
 faster. (**TODO:** This needs some benchmarks).
+
+It also supports a **modified** version of transducer. See [below](#modified-transducer) for what
+the meaning of **modified** is.
 
 ## Installation
 
@@ -178,6 +184,8 @@ For more usages, please refer to
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/optimized_transducer/transducer_loss.py>
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/tests/test_cuda.py>
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/tests/test_compute_transducer_loss.py>
+
+### Modified Transducer
 
 ## For developers
 
