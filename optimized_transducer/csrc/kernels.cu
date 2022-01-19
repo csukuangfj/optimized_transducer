@@ -274,6 +274,7 @@ __global__ void ComputeAlphaOneSymPerFrame(
   }
 
   __syncthreads();
+
   for (int32_t n = 1; n < T + U_p1 - 1; ++n) {
     int32_t t = n - u;
     if (u <= t && t - u <= diff) {
@@ -456,6 +457,61 @@ __global__ void ComputeBeta(const float *log_probs,
         float skip_prob = p_beta_t_p1[u] + (p_log_probs_t + u * 2)[kBlankCol];
         float emit_prob = p_beta_t[u + 1] + (p_log_probs_t + u * 2)[kSymCol];
         p_beta_t[u] = LogAdd(skip_prob, emit_prob);
+      }
+    }
+    __syncthreads();
+  }
+}
+
+// Call it like <<<batch_size, max_U_p1>>>
+__global__ void ComputeBetaOneSymPerFrame(const float *log_probs,
+                                          const int32_t *logit_lengths,
+                                          const int32_t *target_lengths,
+                                          const int32_t *row_splits,
+                                          int32_t max_T, int32_t max_U_p1,
+                                          int32_t *counter, float *beta) {
+  int32_t b = blockIdx.x;
+  int32_t u = threadIdx.x;
+  int32_t T = logit_lengths[b];
+  int32_t U_p1 = target_lengths[b] + 1;
+
+  int32_t offset = row_splits[b];
+  float *p_beta = beta + offset;
+  const float *p_log_probs = log_probs + offset * 2;
+
+  if (u == 0) {
+    (p_beta + T * U_p1)[-1] = (p_log_probs + T * U_p1 * 2 - 2)[kBlankCol];
+  }
+
+  __syncthreads();
+
+  int32_t diff = T - 1 - (U_p1 - 1);
+
+  for (int32_t n = T + U_p1 - 2; n >= 0; --n) {
+    int32_t t = n - u;
+    float *p_beta_t = p_beta + t * U_p1;
+    float *p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+    const float *p_log_probs_t = p_log_probs + t * U_p1 * 2;
+
+    if (u == U_p1 - 1) {
+      // beta(t, U_p1-1) = beta(t+1, U_p1-1) + log_probs(t, U_p1-1).blank
+      if (u <= t && t < T - 1) {
+        p_beta_t[U_p1 - 1] =
+            p_beta_t_p1[U_p1 - 1] + (p_log_probs_t + (U_p1 - 1) * 2)[kBlankCol];
+      }
+    } else if (u < U_p1) {
+      if (u <= t && t - u <= diff) {
+        if (t - u == diff) {
+          // beta(t, u) = beta(t+1, u+1) + log_probs(t, u).symbol
+          p_beta_t[u] = p_beta_t_p1[u + 1] + (p_log_probs_t + u * 2)[kSymCol];
+        } else {
+          // beta(t, u) = log_sum_exp(beta(t+1, u) + log_probs(t, u).blank,
+          //                          beta(t+1, u+1) + log_probs(t, u).symbol)
+          float skip_prob = p_beta_t_p1[u] + (p_log_probs_t + u * 2)[kBlankCol];
+          float emit_prob =
+              p_beta_t_p1[u + 1] + (p_log_probs_t + u * 2)[kSymCol];
+          p_beta_t[u] = LogAdd(skip_prob, emit_prob);
+        }
       }
     }
     __syncthreads();

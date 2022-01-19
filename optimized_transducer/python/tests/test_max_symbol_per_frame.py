@@ -47,6 +47,7 @@ def test_one_symbol_per_frame():
         one_sym_per_frame=True,
     )
     print(loss[: T1 * U1].reshape(T1, U1))
+    print(loss[T1 * U1 :].reshape(T2, U2))
     print(grad)
 
     #  loss_clone = optimized_transducer.transducer_loss(
@@ -81,6 +82,7 @@ def test_one_symbol_per_frame():
             one_sym_per_frame=True,
         )
         print(loss_cuda[: T1 * U1].reshape(T1, U1))
+        print(loss_cuda[T1 * U1 :].reshape(T2, U2))
         print(grad_cuda)
 
 

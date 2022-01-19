@@ -217,13 +217,28 @@ static std::pair<torch::Tensor, torch::Tensor> ComputeAlpha(
   @param logit_lengths A 1-D tensor of shape (batch_size,)
   @param target_lengths A 1-D tensor of shape (batch_size,)
   @param row_splits A 1-D tensor of shape (batch_size,)
+  @param one_sym_per_frame If true, it limits the maximum number of symbols
+                           per frame to 1; If false, it uses standard
+                           transducer's forward algorithm to compute alpha.
+
+  Note:
+    If one_sym_per_frame is false, the formula to compute alpha is:
+
+      beta(t, u) = log_add(beta(t+1, u) + log_probs(t, u).blank,
+                           beta(t, u+1) + log_probs(t, u).symbol)
+
+    If one_sym_per_frame is true, the formula to compute alpha is:
+
+      beta(t, u) = log_add(beta(t+1, u) + log_probs(t, u).blank,
+                            alpha(t+1, u+1) + log_probs(t, u).symbol)
 
   @param Return the computed beta in a 1-D tensor of shape (sum_all_TU,)
  */
 static torch::Tensor ComputeBeta(const torch::Tensor &log_probs,
                                  const torch::Tensor &logit_lengths,
                                  const torch::Tensor &target_lengths,
-                                 const torch::Tensor &row_splits) {
+                                 const torch::Tensor &row_splits,
+                                 bool one_sym_per_frame) {
   int32_t max_T = logit_lengths.max().item<int32_t>();
 
   // it is prepended with a blank so we need to use +1 here
@@ -254,9 +269,16 @@ static torch::Tensor ComputeBeta(const torch::Tensor &log_probs,
       max_U_p1, p_counter, p_beta);
 
 #else
-  ComputeBeta<<<batch_size, max_U_p1, 0, c10::cuda::getCurrentCUDAStream()>>>(
-      p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
-      max_U_p1, /*counter*/ nullptr, p_beta);
+  if (one_sym_per_frame) {
+    ComputeBetaOneSymPerFrame<<<batch_size, max_U_p1, 0,
+                                c10::cuda::getCurrentCUDAStream()>>>(
+        p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
+        max_U_p1, /*counter*/ nullptr, p_beta);
+  } else {
+    ComputeBeta<<<batch_size, max_U_p1, 0, c10::cuda::getCurrentCUDAStream()>>>(
+        p_log_probs, p_logit_lengths, p_target_lengths, p_row_splits, max_T,
+        max_U_p1, /*counter*/ nullptr, p_beta);
+  }
 #endif
   auto ret = cudaGetLastError();
   OT_CHECK_CUDA(ret);
@@ -387,10 +409,10 @@ ComputeTransducerLossCuda(torch::Tensor &logits,  // NOLINT
   torch::Tensor total_scores;
   std::tie(alpha, total_scores) = ComputeAlpha(
       log_probs, logit_lengths, target_lengths, row_splits, one_sym_per_frame);
-  return {alpha, total_scores};
 
-  torch::Tensor beta =
-      ComputeBeta(log_probs, logit_lengths, target_lengths, row_splits);
+  torch::Tensor beta = ComputeBeta(log_probs, logit_lengths, target_lengths,
+                                   row_splits, one_sym_per_frame);
+  return {beta, total_scores};
 
   bool requires_grad = logits.requires_grad();
   torch::Tensor gradient;
