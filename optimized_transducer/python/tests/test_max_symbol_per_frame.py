@@ -7,15 +7,19 @@ import torch
 import optimized_transducer
 
 
-def test_alpha(from_log_softmax: bool = False):
+def assert_allclose(a: torch.Tensor, b: torch.Tensor, atol=1e-6, **kwargs):
+    assert torch.allclose(a, b, atol=atol, **kwargs), f"{(a - b).abs().max()}, {a}, {b}"
 
-    T1 = 6
-    T2 = 4
 
-    U1 = 3
-    U2 = 3
+def test_one_symbol_per_frame():
 
-    V = 3
+    T1 = 100
+    T2 = 200
+
+    U1 = 50
+    U2 = 60
+
+    V = 1000
 
     logits = torch.rand(2, max(T1, T2), max(U1, U2), V, dtype=torch.float32)
     targets = torch.randint(
@@ -27,30 +31,42 @@ def test_alpha(from_log_softmax: bool = False):
     logits0 = logits[0, :T1, :U1, :].reshape(-1, V).requires_grad_(True)
     logits1 = logits[1, :T2, :U2, :].reshape(-1, V).requires_grad_(True)
 
+    logits0_clone = logits0.detach().clone().requires_grad_(True)
+    logits1_clone = logits1.detach().clone().requires_grad_(True)
+
     logits = torch.cat([logits0, logits1])
+    logits_clone = torch.cat([logits0_clone, logits1_clone])
 
-    if from_log_softmax:
-        logits = logits.log_softmax(dim=-1)
-
-    loss, total_scores = optimized_transducer.transducer_loss(
-        logits=logits,
+    loss = optimized_transducer.transducer_loss(
+        logits=logits.log_softmax(dim=-1),
         targets=targets,
         logit_lengths=logit_lengths,
         target_lengths=target_lengths,
         blank=0,
-        from_log_softmax=from_log_softmax,
+        from_log_softmax=True,
         one_sym_per_frame=True,
     )
-    print(loss[: T1 * U1].reshape(T1, U1))
-    print(loss[T1 * U1 :].reshape(T2, U2))
-    print(loss)
-    print(total_scores)
+
+    loss_clone = optimized_transducer.transducer_loss(
+        logits=logits_clone,
+        targets=targets,
+        logit_lengths=logit_lengths,
+        target_lengths=target_lengths,
+        blank=0,
+        from_log_softmax=False,
+        one_sym_per_frame=True,
+    )
+
+    loss.backward()
+    loss_clone.backward()
+
+    assert_allclose(loss, loss_clone)
+    assert_allclose(logits0.grad, logits0_clone.grad, atol=1e-4)
+    assert_allclose(logits1.grad, logits1_clone.grad, atol=1e-4)
 
 
 def main():
-    #  for from_log_softmax in [True, False]:
-    for from_log_softmax in [True]:
-        test_alpha(from_log_softmax)
+    test_one_symbol_per_frame()
 
 
 if __name__ == "__main__":
