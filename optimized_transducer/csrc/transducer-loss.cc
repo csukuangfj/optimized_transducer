@@ -16,7 +16,7 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>>
 ComputeTransducerLossCuda(torch::Tensor &logits, const torch::Tensor &targets,
                           const torch::Tensor &logit_lengths,
                           const torch::Tensor &target_lengths, int32_t blank,
-                          bool from_log_softmax);
+                          bool from_log_softmax, bool one_sym_per_frame);
 
 std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
     torch::Tensor &logits, const torch::Tensor &targets,
@@ -79,7 +79,8 @@ std::pair<torch::Tensor, torch::optional<torch::Tensor>> ComputeTransducerLoss(
         {logits_arg, targets_arg, logit_lengths_arg, target_lengths_arg});
 
     return ComputeTransducerLossCuda(logits, targets, logit_lengths,
-                                     target_lengths, blank, from_log_softmax);
+                                     target_lengths, blank, from_log_softmax,
+                                     one_sym_per_frame);
 
 #else
     throw std::runtime_error(

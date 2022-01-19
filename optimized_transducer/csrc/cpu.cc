@@ -782,6 +782,8 @@ ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
         ComputeAlpha(log_probs, logit_lengths, target_lengths);
   }
 
+  return {alpha, total_scores};
+
   torch::Tensor beta;
   torch::Tensor total_scores_2;
   if (one_sym_per_frame) {

@@ -93,6 +93,30 @@ __global__ void ComputeAlpha(const float *log_probs,
   @param max_U_p1  It is max_U + 1
   @param counter Pointer to a 2-D tensor of shape (batch_size, max_U_p1). The
                  tensor should be zero initialized.
+  @param alpha  Pointer to a 1-D tensor of shape (sum_all_TU,). On return, it
+                contains the computed alpha.
+  @param total_scores Pointer to a 1-D tensor of shape (batch_size,). On
+                      return, it contains the total scores for each utterance
+                      in the batch.
+ */
+__global__ void ComputeAlphaOneSymPerFrame(
+    const float *log_probs, const int32_t *logit_lengths,
+    const int32_t *target_lengths, const int32_t *row_splits, int32_t max_T,
+    int32_t max_U_p1, int32_t *counter, float *alpha, float *total_scores);
+
+/**
+  @param log_probs  Pointer to a 2-D tensor of shape (sum_all_TU, 2).
+  @param logit_lengths Pointer to a 1-D tensor of shape (batch_size,) containing
+                       the number of encoder output frames before padding.
+  @param target_lengths  Pointer to a 1-D tensor of shape (batch_size,)
+                         containing number of tokens in each utterance before
+                         padding, excluding blank.
+  @param row_splits  Pointer to a 1-D tensor of shape (batch_size+1,)
+  @param max_T  The maximum number of encoder output frames of the utterance
+                within the batch.
+  @param max_U_p1  It is max_U + 1
+  @param counter Pointer to a 2-D tensor of shape (batch_size, max_U_p1). The
+                 tensor should be zero initialized.
   @param beta    Pointer to a 1-D tensor of shape (sum_all_TU,). On return, it
                  contains the computed beta.
  */
