@@ -141,7 +141,6 @@ class TransducerLossFunction(torch.autograd.Function):
             from_log_softmax=from_log_softmax,
             one_sym_per_frame=one_sym_per_frame,
         )
-        return scores, grad
 
         loss = -1 * scores
 
@@ -195,7 +194,7 @@ class TransducerLoss(torch.nn.Module):
         logit_lengths: torch.Tensor,
         target_lengths: torch.Tensor,
         from_log_softmax: bool,
-        one_sym_per_frame: bool,
+        one_sym_per_frame: bool = False,
     ) -> torch.Tensor:
         """
         Args:
@@ -317,7 +316,7 @@ def transducer_loss(
     target_lengths: torch.Tensor,
     blank: int,
     from_log_softmax: bool,
-    one_sym_per_frame: bool,
+    one_sym_per_frame: bool = False,
     reduction: str = "mean",
 ) -> torch.Tensor:
     """

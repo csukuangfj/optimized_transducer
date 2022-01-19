@@ -565,7 +565,7 @@ static void ComputeGradientForLogSoftmax(
     // We need to plus one since it is prepended with a blank
     int32_t U_p1 = target_len_arr[b] + 1;
 
-    float loss = -p_beta[0];
+    float loss = -1 * p_beta[0];
     for (int32_t t = 0; t != T; ++t, p_alpha += U_p1, p_beta += U_p1) {
       const float *p_beta_t_p1 = p_beta + U_p1;
 
@@ -589,6 +589,79 @@ static void ComputeGradientForLogSoftmax(
         }
       }
     }
+  }
+}
+
+/**
+   @param logits The output of log-softmax with shape (sum_all_TU, vocab_size)
+   @param logit_lengths A 1-D tensor of shape (batch_size,)
+   @param targets  A 2-D tensor of shape (batch_size, max_U). It
+                   is NOT prepended with a blank.
+   @param target_lengths A 1-D tensor of shape (batch_size,)
+   @param alpha  A 1-D tensor of shape (sum_all_TU,)
+   @param beta  A 1-D tensor of shape (sum_all_TU,)
+   @param blank The ID of the blank symbol.
+   @param gradient A 2-D tensor of shape (sum_all_TU, vocab_size)
+
+  Caution: This function assumes `logits` is the output of log-softmax.
+ */
+static void ComputeGradientForLogSoftmaxOneSymPerFrame(
+    const torch::Tensor &logits, const torch::Tensor &logit_lengths,
+    const torch::Tensor &targets, const torch::Tensor &target_lengths,
+    const torch::Tensor &alpha, const torch::Tensor &beta, int32_t blank,
+    torch::Tensor *gradient) {
+  torch::ArrayRef<int32_t> logit_len_arr(logit_lengths.data_ptr<int32_t>(),
+                                         logit_lengths.numel());
+
+  torch::ArrayRef<int32_t> target_len_arr(target_lengths.data_ptr<int32_t>(),
+                                          target_lengths.numel());
+
+  const float *p_logits = logits.data_ptr<float>();
+  const float *p_alpha = alpha.data_ptr<float>();
+  const float *p_beta = beta.data_ptr<float>();
+  float *p_grad = gradient->data_ptr<float>();
+  const int32_t *p_targets = targets.data_ptr<int32_t>();
+  int32_t V = logits.size(1);  // vocabulary size including blank
+  int32_t batch_size = logit_lengths.size(0);
+  for (int32_t b = 0; b != batch_size; ++b, p_targets += targets.size(1)) {
+    int32_t T = logit_len_arr[b];
+    // p1 means plus one
+    // We need to plus one since it is prepended with a blank
+    int32_t U_p1 = target_len_arr[b] + 1;
+    float loss = -1 * p_beta[0];
+    int32_t diff = T - 1 - (U_p1 - 1);
+
+    for (int32_t t = 0; t != T; ++t) {
+      const float *p_alpha_t = p_alpha + t * U_p1;
+      const float *p_beta_t = p_beta + t * U_p1;
+      const float *p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+
+      for (int32_t u = 0; u != U_p1; ++u, p_logits += V, p_grad += V) {
+        if (u > t || t - u > diff) {
+          // Set grad to 0 as these (t, u) nodes do not contribute to the loss
+          memset(p_grad, 0, sizeof(float) * V);
+          continue;
+        }
+
+        int32_t target_u =
+            (u < U_p1 - 1) ? p_targets[u] : -1;  // -1 is not used
+        float c = p_alpha_t[u] + loss;
+
+        for (int32_t v = 0; v != V; ++v) {
+          float g = p_logits[v] + c;
+          if (v == blank && t == T - 1 && u == U_p1 - 1) {
+            // the last blank transition
+            p_grad[v] = -std::exp(g);
+          } else if (v == blank && t - u < diff) {
+            p_grad[v] = -std::exp(g + p_beta_t_p1[u]);
+          } else if (u < U_p1 - 1 && v == target_u) {
+            p_grad[v] = -std::exp(g + p_beta_t_p1[u + 1]);
+          } else {
+            p_grad[v] = 0;
+          }
+        }  // end v
+      }    // end u
+    }      // end t
   }
 }
 
@@ -638,16 +711,20 @@ ComputeTransducerLossCpu(torch::Tensor &logits,  // NOLINT
       torch::allclose(total_scores, total_scores_2),
       "total scores computed from forward/backward passes are not equal");
 
-  return {beta, total_scores_2};
-
   bool requires_grad = logits.requires_grad();
   torch::Tensor gradient;
   if (requires_grad) {
     if (from_log_softmax) {
       gradient = torch::empty_like(logits);
-      ComputeGradientForLogSoftmax(logits, logit_lengths, targets,
-                                   target_lengths, alpha, beta, blank,
-                                   &gradient);
+      if (one_sym_per_frame) {
+        ComputeGradientForLogSoftmaxOneSymPerFrame(
+            logits, logit_lengths, targets, target_lengths, alpha, beta, blank,
+            &gradient);
+      } else {
+        ComputeGradientForLogSoftmax(logits, logit_lengths, targets,
+                                     target_lengths, alpha, beta, blank,
+                                     &gradient);
+      }
     } else {
       gradient = logits;  // shallow copy
       ComputeGradient(logits, logit_lengths, targets, target_lengths,
