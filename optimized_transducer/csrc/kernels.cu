@@ -586,6 +586,70 @@ __global__ void ComputeGradient(
   }
 }
 
+__global__ void ComputeGradientOneSymPerFrame(
+    const float *logits, const float *denominator, const int32_t *targets,
+    const int32_t *logit_lengths, const int32_t *target_lengths, int32_t blank,
+    const int32_t *row_splits, const int32_t *row_ids, int32_t sum_all_TU,
+    int32_t vocab_size, int32_t targets_col, const float *alpha,
+    const float *beta, float *gradient) {
+  int32_t idx01 = blockDim.x * blockIdx.x + threadIdx.x;
+  if (idx01 >= sum_all_TU) return;  // out-of-boundary
+
+  int32_t b = row_ids[idx01];  // batch size
+
+  // +1 since it is prepended with a blank
+  int32_t U_p1 = target_lengths[b] + 1;
+  int32_t T = logit_lengths[b];
+  int32_t offset = row_splits[b];
+
+  int32_t idx1 = idx01 - offset;
+  int32_t t = idx1 / U_p1;
+  int32_t u = idx1 % U_p1;
+
+  const float *p_logits_t_u = logits + idx01 * vocab_size;
+  const float *p_denominator = denominator + offset;
+  const float *p_denominator_t = p_denominator + t * U_p1;
+  const int32_t *p_targets = targets + b * targets_col;
+
+  const float *p_alpha = alpha + offset;
+  const float *p_alpha_t = p_alpha + t * U_p1;
+
+  const float *p_beta = beta + offset;
+  const float *p_beta_t = p_beta + t * U_p1;
+  const float *p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+
+  float *p_grad_t_u = gradient + idx01 * vocab_size;
+  float loss = -1 * p_beta[0];
+  int32_t diff = T - 1 - (U_p1 - 1);
+
+  if (u > t || t - u > diff || isinf(loss) || isnan(loss)) {
+    for (int32_t v = 0; v != vocab_size; ++v) {
+      p_grad_t_u[v] = 0;
+    }
+    return;
+  }
+
+  float c = p_alpha_t[u] + loss - p_denominator_t[u];
+
+  int32_t target_u = (u < U_p1 - 1) ? p_targets[u] : -1;  // -1 is not used
+  for (int32_t v = 0; v != vocab_size; ++v) {
+    float g = p_logits_t_u[v] + c;
+    float val = 0;
+    if (v == blank && t == T - 1 && u == U_p1 - 1) {
+      // last blank transition
+      val = expf(g + p_beta_t[u]) - expf(g);
+    } else if (v == blank && t - u < diff) {
+      val = expf(g + p_beta_t[u]) - expf(g + p_beta_t_p1[u]);
+    } else if (u < U_p1 - 1 && v == target_u) {
+      val = expf(g + p_beta_t[u]) - expf(g + p_beta_t_p1[u + 1]);
+    } else {
+      val = expf(g + p_beta_t[u]);
+    }
+
+    p_grad_t_u[v] = val;
+  }  // end v
+}
+
 __global__ void ComputeGradientForLogSoftmax(
     const float *logits, const int32_t *targets, const int32_t *logit_lengths,
     const int32_t *target_lengths, int32_t blank, const int32_t *row_splits,
