@@ -344,6 +344,9 @@ static void ComputeGradient(
   @param blank The ID of the blank symbol.
   @param row_splits A 1-D tensor of shape (batch_size,)
   @param row_ids A 1-D tensor of shape (sum_all_TU,)
+  @param one_sym_per_frame If true, it limits the maximum number of symbols
+                           per frame to 1; If false, it uses standard
+                           transducer's forward algorithm to compute alpha.
   @param gradient A 2-D tensor of shape (sum_all_TU, vocab_size).
  */
 static void ComputeGradientForLogSoftmax(
@@ -351,7 +354,7 @@ static void ComputeGradientForLogSoftmax(
     const torch::Tensor &targets, const torch::Tensor &target_lengths,
     const torch::Tensor &alpha, const torch::Tensor &beta, int32_t blank,
     const torch::Tensor &row_splits, const torch::Tensor &row_ids,
-    torch::Tensor *gradient) {
+    bool one_sym_per_frame, torch::Tensor *gradient) {
   const float *p_logits = logits.data_ptr<float>();
   const int32_t *p_logit_lengths = logit_lengths.data_ptr<int32_t>();
   const int32_t *p_targets = targets.data_ptr<int32_t>();
@@ -365,11 +368,20 @@ static void ComputeGradientForLogSoftmax(
   int32_t num_blocks =
       (logits.size(0) + kMaxThreadsPerBlock - 1) / kMaxThreadsPerBlock;
 
-  ComputeGradientForLogSoftmax<<<num_blocks, kMaxThreadsPerBlock, 0,
-                                 c10::cuda::getCurrentCUDAStream()>>>(
-      p_logits, p_targets, p_logit_lengths, p_target_lengths, blank,
-      p_row_splits, p_row_ids, logits.size(0), logits.size(1), targets.size(1),
-      p_alpha, p_beta, p_grad);
+  if (one_sym_per_frame) {
+    ComputeGradientForLogSoftmaxOneSymPerFrame<<<
+        num_blocks, kMaxThreadsPerBlock, 0,
+        c10::cuda::getCurrentCUDAStream()>>>(
+        p_logits, p_targets, p_logit_lengths, p_target_lengths, blank,
+        p_row_splits, p_row_ids, logits.size(0), logits.size(1),
+        targets.size(1), p_alpha, p_beta, p_grad);
+  } else {
+    ComputeGradientForLogSoftmax<<<num_blocks, kMaxThreadsPerBlock, 0,
+                                   c10::cuda::getCurrentCUDAStream()>>>(
+        p_logits, p_targets, p_logit_lengths, p_target_lengths, blank,
+        p_row_splits, p_row_ids, logits.size(0), logits.size(1),
+        targets.size(1), p_alpha, p_beta, p_grad);
+  }
 
   auto ret = cudaGetLastError();
   OT_CHECK_CUDA(ret);
@@ -412,16 +424,15 @@ ComputeTransducerLossCuda(torch::Tensor &logits,  // NOLINT
 
   torch::Tensor beta = ComputeBeta(log_probs, logit_lengths, target_lengths,
                                    row_splits, one_sym_per_frame);
-  return {beta, total_scores};
 
   bool requires_grad = logits.requires_grad();
   torch::Tensor gradient;
   if (requires_grad) {
     if (from_log_softmax) {
       gradient = torch::empty_like(logits);
-      ComputeGradientForLogSoftmax(logits, logit_lengths, targets,
-                                   target_lengths, alpha, beta, blank,
-                                   row_splits, row_ids, &gradient);
+      ComputeGradientForLogSoftmax(
+          logits, logit_lengths, targets, target_lengths, alpha, beta, blank,
+          row_splits, row_ids, one_sym_per_frame, &gradient);
     } else {
       gradient = logits;  // shallow copy
       ComputeGradient(logits, logit_lengths, targets, target_lengths,

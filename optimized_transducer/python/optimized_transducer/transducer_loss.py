@@ -141,7 +141,6 @@ class TransducerLossFunction(torch.autograd.Function):
             from_log_softmax=from_log_softmax,
             one_sym_per_frame=one_sym_per_frame,
         )
-        return scores, grad
 
         loss = -1 * scores
 

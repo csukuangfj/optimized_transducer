@@ -37,7 +37,7 @@ def test_one_symbol_per_frame():
     logits = torch.cat([logits0, logits1])
     logits_clone = torch.cat([logits0_clone, logits1_clone])
 
-    loss, grad = optimized_transducer.transducer_loss(
+    loss = optimized_transducer.transducer_loss(
         logits=logits.log_softmax(dim=-1),
         targets=targets,
         logit_lengths=logit_lengths,
@@ -46,9 +46,6 @@ def test_one_symbol_per_frame():
         from_log_softmax=True,
         one_sym_per_frame=True,
     )
-    print(loss[: T1 * U1].reshape(T1, U1))
-    print(loss[T1 * U1 :].reshape(T2, U2))
-    print(grad)
 
     #  loss_clone = optimized_transducer.transducer_loss(
     #      logits=logits_clone,
@@ -60,7 +57,7 @@ def test_one_symbol_per_frame():
     #      one_sym_per_frame=True,
     #  )
     #
-    #  loss.backward()
+    loss.backward()
     #  loss_clone.backward()
     #
     #  assert_allclose(loss, loss_clone)
@@ -72,7 +69,7 @@ def test_one_symbol_per_frame():
         logits1_cuda = logits1.detach().to(device).requires_grad_(True)
         logits_cuda = torch.cat([logits0_cuda, logits1_cuda])
 
-        loss_cuda, grad_cuda = optimized_transducer.transducer_loss(
+        loss_cuda = optimized_transducer.transducer_loss(
             logits=logits_cuda.log_softmax(dim=-1),
             targets=targets.to(device),
             logit_lengths=logit_lengths.to(device),
@@ -81,9 +78,10 @@ def test_one_symbol_per_frame():
             from_log_softmax=True,
             one_sym_per_frame=True,
         )
-        print(loss_cuda[: T1 * U1].reshape(T1, U1))
-        print(loss_cuda[T1 * U1 :].reshape(T2, U2))
-        print(grad_cuda)
+        loss_cuda.backward()
+
+        assert_allclose(loss, loss_cuda.cpu())
+        assert_allclose(logits0.grad, logits0_cuda.grad.cpu())
 
 
 def main():
