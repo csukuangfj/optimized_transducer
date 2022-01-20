@@ -19,7 +19,7 @@ we also support output from `log-softmax` (You can set the option
 `from_log_softmax` to `True` in this case).
 
 It also supports a **modified** version of transducer. See [below](#modified-transducer) for what
-the meaning of **modified** is.
+the meaning of **modified transducer** is.
 
 ### How does it differ from [warp-transducer](https://github.com/HawkAaron/warp-transducer)
 
@@ -38,15 +38,15 @@ what `torchaudio` is doing. (We borrow the gradient computation formula from `to
 faster. (**TODO:** This needs some benchmarks).
 
 It also supports a **modified** version of transducer. See [below](#modified-transducer) for what
-the meaning of **modified** is.
+the meaning of **modified transducer** is.
 
 ### Modified Transducer
 
-In modified transducer, we limit the maximum number of symbols per frame to 1. The following
-figure compares the formula for forward and backward procedure between standard transducer
+In **modified transducer**, we limit the maximum number of symbols per frame to 1. The following
+figure compares the formula for forward and backward procedures between standard transducer
 and modified transducer.
 
-![forward backward formula](/pic.svg | width=500)
+<img src="/pic.svg" width="514" height="507.5" />
 
 **Note**: Modified transducer is proposed independently by [@danpovey](https://github.com/danpovey).
 We were later informed that the idea already existed in
