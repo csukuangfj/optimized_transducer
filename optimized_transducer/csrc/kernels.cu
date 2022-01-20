@@ -253,6 +253,65 @@ __global__ void ComputeAlpha(const float *log_probs,
 }
 #endif
 
+// Call it like <<<batch_size, maxU>>>
+__global__ void ComputeAlphaOneSymPerFrame(
+    const float *log_probs, const int32_t *logit_lengths,
+    const int32_t *target_lengths, const int32_t *row_splits, int32_t max_T,
+    int32_t max_U_p1, int32_t *counter, float *alpha, float *total_scores) {
+  int32_t b = blockIdx.x;
+  int32_t u = threadIdx.x;
+  int32_t T = logit_lengths[b];
+  int32_t U_p1 = target_lengths[b] + 1;
+
+  int32_t diff = T - 1 - (U_p1 - 1);
+
+  int32_t offset = row_splits[b];
+  float *p_alpha = alpha + offset;
+  const float *p_log_probs = log_probs + offset * 2;
+
+  if (u == 0) {
+    p_alpha[0] = 0;
+  }
+
+  __syncthreads();
+
+  for (int32_t n = 1; n < T + U_p1 - 1; ++n) {
+    int32_t t = n - u;
+    if (u <= t && t - u <= diff) {
+      float *p_alpha_t = p_alpha + t * U_p1;
+      float *p_alpha_t_m1 = p_alpha + (t - 1) * U_p1;
+      const float *p_log_probs_t_m1 = p_log_probs + (t - 1) * U_p1 * 2;
+      if (u == 0) {
+        if (t > 0 && t <= diff) {
+          // when u = 0, alpha(t, 0) = alpha(t-1, 0) + log_probs(t-1, 0).blank
+          *p_alpha_t = *p_alpha_t_m1 + p_log_probs_t_m1[kBlankCol];
+        }
+      } else if (u < U_p1) {
+        if (t == u) {
+          // alpha(t, u) = alpha(t-1, u-1) + log_probs(t-1, u-1).symbol
+          p_alpha_t[u] =
+              p_alpha_t_m1[u - 1] + (p_log_probs_t_m1 + (u - 1) * 2)[kSymCol];
+        } else {
+          // alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_probs(t-1, u).blank,
+          //                      alpha(t-1, u-1) + log_probs(t-1, u-1).symbol)
+          float skip_prob =
+              p_alpha_t_m1[u] + (p_log_probs_t_m1 + u * 2)[kBlankCol];
+          float emit_prob =
+              p_alpha_t_m1[u - 1] + (p_log_probs_t_m1 + (u - 1) * 2)[kSymCol];
+          p_alpha_t[u] = LogAdd(skip_prob, emit_prob);
+          // p_alpha_t[u] = 0;
+        }
+      }
+    }
+    __syncthreads();
+  }
+
+  if (u == 0) {
+    total_scores[b] = *(p_alpha + T * U_p1 - 1) +
+                      (p_log_probs + (T * U_p1 - 1) * 2)[kBlankCol];
+  }
+}
+
 #if 0
 // This function uses
 // https://github.com/pytorch/audio/blob/main/torchaudio/csrc/rnnt/gpu/gpu_kernels.cuh#L159
@@ -403,6 +462,61 @@ __global__ void ComputeBeta(const float *log_probs,
     __syncthreads();
   }
 }
+
+// Call it like <<<batch_size, max_U_p1>>>
+__global__ void ComputeBetaOneSymPerFrame(const float *log_probs,
+                                          const int32_t *logit_lengths,
+                                          const int32_t *target_lengths,
+                                          const int32_t *row_splits,
+                                          int32_t max_T, int32_t max_U_p1,
+                                          int32_t *counter, float *beta) {
+  int32_t b = blockIdx.x;
+  int32_t u = threadIdx.x;
+  int32_t T = logit_lengths[b];
+  int32_t U_p1 = target_lengths[b] + 1;
+
+  int32_t offset = row_splits[b];
+  float *p_beta = beta + offset;
+  const float *p_log_probs = log_probs + offset * 2;
+
+  if (u == 0) {
+    (p_beta + T * U_p1)[-1] = (p_log_probs + T * U_p1 * 2 - 2)[kBlankCol];
+  }
+
+  __syncthreads();
+
+  int32_t diff = T - 1 - (U_p1 - 1);
+
+  for (int32_t n = T + U_p1 - 2; n >= 0; --n) {
+    int32_t t = n - u;
+    float *p_beta_t = p_beta + t * U_p1;
+    float *p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+    const float *p_log_probs_t = p_log_probs + t * U_p1 * 2;
+
+    if (u == U_p1 - 1) {
+      // beta(t, U_p1-1) = beta(t+1, U_p1-1) + log_probs(t, U_p1-1).blank
+      if (u <= t && t < T - 1) {
+        p_beta_t[U_p1 - 1] =
+            p_beta_t_p1[U_p1 - 1] + (p_log_probs_t + (U_p1 - 1) * 2)[kBlankCol];
+      }
+    } else if (u < U_p1) {
+      if (u <= t && t - u <= diff) {
+        if (t - u == diff) {
+          // beta(t, u) = beta(t+1, u+1) + log_probs(t, u).symbol
+          p_beta_t[u] = p_beta_t_p1[u + 1] + (p_log_probs_t + u * 2)[kSymCol];
+        } else {
+          // beta(t, u) = log_sum_exp(beta(t+1, u) + log_probs(t, u).blank,
+          //                          beta(t+1, u+1) + log_probs(t, u).symbol)
+          float skip_prob = p_beta_t_p1[u] + (p_log_probs_t + u * 2)[kBlankCol];
+          float emit_prob =
+              p_beta_t_p1[u + 1] + (p_log_probs_t + u * 2)[kSymCol];
+          p_beta_t[u] = LogAdd(skip_prob, emit_prob);
+        }
+      }
+    }
+    __syncthreads();
+  }
+}
 #endif
 
 __global__ void ComputeGradient(
@@ -472,6 +586,70 @@ __global__ void ComputeGradient(
   }
 }
 
+__global__ void ComputeGradientOneSymPerFrame(
+    const float *logits, const float *denominator, const int32_t *targets,
+    const int32_t *logit_lengths, const int32_t *target_lengths, int32_t blank,
+    const int32_t *row_splits, const int32_t *row_ids, int32_t sum_all_TU,
+    int32_t vocab_size, int32_t targets_col, const float *alpha,
+    const float *beta, float *gradient) {
+  int32_t idx01 = blockDim.x * blockIdx.x + threadIdx.x;
+  if (idx01 >= sum_all_TU) return;  // out-of-boundary
+
+  int32_t b = row_ids[idx01];  // batch size
+
+  // +1 since it is prepended with a blank
+  int32_t U_p1 = target_lengths[b] + 1;
+  int32_t T = logit_lengths[b];
+  int32_t offset = row_splits[b];
+
+  int32_t idx1 = idx01 - offset;
+  int32_t t = idx1 / U_p1;
+  int32_t u = idx1 % U_p1;
+
+  const float *p_logits_t_u = logits + idx01 * vocab_size;
+  const float *p_denominator = denominator + offset;
+  const float *p_denominator_t = p_denominator + t * U_p1;
+  const int32_t *p_targets = targets + b * targets_col;
+
+  const float *p_alpha = alpha + offset;
+  const float *p_alpha_t = p_alpha + t * U_p1;
+
+  const float *p_beta = beta + offset;
+  const float *p_beta_t = p_beta + t * U_p1;
+  const float *p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+
+  float *p_grad_t_u = gradient + idx01 * vocab_size;
+  float loss = -1 * p_beta[0];
+  int32_t diff = T - 1 - (U_p1 - 1);
+
+  if (u > t || t - u > diff || isinf(loss) || isnan(loss)) {
+    for (int32_t v = 0; v != vocab_size; ++v) {
+      p_grad_t_u[v] = 0;
+    }
+    return;
+  }
+
+  float c = p_alpha_t[u] + loss - p_denominator_t[u];
+
+  int32_t target_u = (u < U_p1 - 1) ? p_targets[u] : -1;  // -1 is not used
+  for (int32_t v = 0; v != vocab_size; ++v) {
+    float g = p_logits_t_u[v] + c;
+    float val = 0;
+    if (v == blank && t == T - 1 && u == U_p1 - 1) {
+      // last blank transition
+      val = expf(g + p_beta_t[u]) - expf(g);
+    } else if (v == blank && t - u < diff) {
+      val = expf(g + p_beta_t[u]) - expf(g + p_beta_t_p1[u]);
+    } else if (u < U_p1 - 1 && v == target_u) {
+      val = expf(g + p_beta_t[u]) - expf(g + p_beta_t_p1[u + 1]);
+    } else {
+      val = expf(g + p_beta_t[u]);
+    }
+
+    p_grad_t_u[v] = val;
+  }  // end v
+}
+
 __global__ void ComputeGradientForLogSoftmax(
     const float *logits, const int32_t *targets, const int32_t *logit_lengths,
     const int32_t *target_lengths, int32_t blank, const int32_t *row_splits,
@@ -533,6 +711,69 @@ __global__ void ComputeGradientForLogSoftmax(
       val = 0;
     }
 
+    p_grad_t_u[v] = val;
+  }
+}
+
+__global__ void ComputeGradientForLogSoftmaxOneSymPerFrame(
+    const float *logits, const int32_t *targets, const int32_t *logit_lengths,
+    const int32_t *target_lengths, int32_t blank, const int32_t *row_splits,
+    const int32_t *row_ids, int32_t sum_all_TU, int32_t vocab_size,
+    int32_t targets_col, const float *alpha, const float *beta,
+    float *gradient) {
+  int32_t idx01 = blockDim.x * blockIdx.x + threadIdx.x;
+  if (idx01 >= sum_all_TU) return;  // out-of-boundary
+
+  int32_t b = row_ids[idx01];  // batch size
+
+  // +1 since it is prepended with a blank
+  int32_t U_p1 = target_lengths[b] + 1;
+  int32_t T = logit_lengths[b];
+  int32_t offset = row_splits[b];
+
+  int32_t idx1 = idx01 - offset;
+  int32_t t = idx1 / U_p1;
+  int32_t u = idx1 % U_p1;
+
+  int32_t diff = T - 1 - (U_p1 - 1);
+
+  const float *p_logits_t_u = logits + idx01 * vocab_size;
+  const int32_t *p_targets = targets + b * targets_col;
+
+  const float *p_alpha = alpha + offset;
+  const float *p_alpha_t = p_alpha + t * U_p1;
+
+  const float *p_beta = beta + offset;
+  const float *p_beta_t_p1 = p_beta + (t + 1) * U_p1;
+
+  float *p_grad_t_u = gradient + idx01 * vocab_size;
+
+  float loss = -1 * p_beta[0];
+
+  if (u > t || t - u > diff || isinf(loss) || isnan(loss)) {
+    for (int32_t v = 0; v != vocab_size; ++v) {
+      p_grad_t_u[v] = 0;
+    }
+    return;
+  }
+
+  float c = p_alpha_t[u] + loss;
+
+  int32_t target_u = (u < U_p1 - 1) ? p_targets[u] : -1;  // -1 is not used
+
+  for (int32_t v = 0; v != vocab_size; ++v) {
+    float g = p_logits_t_u[v] + c;
+    float val = 0;
+    if (v == blank && t == T - 1 && u == U_p1 - 1) {
+      // the last blank transition
+      val = -expf(g);
+    } else if (v == blank && t - u < diff) {
+      val = -expf(g + p_beta_t_p1[u]);
+    } else if (u < U_p1 - 1 && v == target_u) {
+      val = -expf(g + p_beta_t_p1[u + 1]);
+    } else {
+      val = 0;
+    }
     p_grad_t_u[v] = val;
   }
 }

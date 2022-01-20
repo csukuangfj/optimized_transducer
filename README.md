@@ -18,6 +18,9 @@ Also, `torchaudio` accepts only output from `nn.Linear`, but
 we also support output from `log-softmax` (You can set the option
 `from_log_softmax` to `True` in this case).
 
+It also supports a **modified** version of transducer. See [below](#modified-transducer) for what
+the meaning of **modified transducer** is.
+
 ### How does it differ from [warp-transducer](https://github.com/HawkAaron/warp-transducer)
 
 It borrows the methods of computing alpha and beta from `warp-transducer`. Therefore,
@@ -33,6 +36,23 @@ what `torchaudio` is doing. (We borrow the gradient computation formula from `to
 
 `optimized_transducer` uses less memory than that of `warp-transducer` and is potentially
 faster. (**TODO:** This needs some benchmarks).
+
+It also supports a **modified** version of transducer. See [below](#modified-transducer) for what
+the meaning of **modified transducer** is.
+
+### Modified Transducer
+
+In **modified transducer**, we limit the maximum number of symbols per frame to 1. The following
+figure compares the formula for forward and backward procedures between standard transducer
+and modified transducer.
+
+<img src="/pic.svg" width="514" height="507.5" />
+
+**Note**: Modified transducer is proposed independently by [@danpovey](https://github.com/danpovey).
+We were later informed that the idea already existed in
+[Recurrent Neural Aligner: An Encoder-Decoder Neural Network Model for
+Sequence to Sequence Mapping](https://www.isca-speech.org/archive_v0/Interspeech_2017/pdfs/1705.PDF)
+
 
 ## Installation
 
@@ -173,11 +193,16 @@ If you want to do some operations on the output of `log-softmax` before feeding 
 to `optimized_transducer.transducer_loss()`, `from_log_softmax=True` is helpful in
 this case. But be aware that this will increase the memory usage.
 
+
+To use the **modified** transducer, pass an additional argument `one_sym_per_frame=True`
+to `optimized_transducer.transducer_loss()`.
+
 For more usages, please refer to
 
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/optimized_transducer/transducer_loss.py>
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/tests/test_cuda.py>
   - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/tests/test_compute_transducer_loss.py>
+  - <https://github.com/csukuangfj/optimized_transducer/blob/master/optimized_transducer/python/tests/test_max_symbol_per_frame.py>
 
 ## For developers
 

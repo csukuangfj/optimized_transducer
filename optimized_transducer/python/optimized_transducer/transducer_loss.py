@@ -14,6 +14,7 @@ class TransducerLossFunction(torch.autograd.Function):
         target_lengths: torch.Tensor,
         blank: int,
         from_log_softmax: bool,
+        one_sym_per_frame: bool,
         reduction: str = "mean",
     ) -> torch.Tensor:
         """
@@ -85,6 +86,36 @@ class TransducerLossFunction(torch.autograd.Function):
               `nn.Linear` if you need to save memory usage.
               Set it to `True` if you want to manipulate the output of
               `log-softmax` before sending it for loss computations.
+          one_sym_per_frame:
+            If True, it limits the maximum number of symbols per frame to 1.
+            If False, it is equivalent to the standard transducer loss.
+
+            Caution:
+              If `one_sym_per_frame` is ``False``, we have the following formula
+              to compute `alpha`::
+
+              alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
+                                   alpha(t-1, u-1) + log_prob(t-1, u-1).symbol);
+                     (t-1, u) ---> (t, u)
+                                     ^
+                                     |
+                                     |
+                                     |
+                                  (t, u-1)
+
+              If `one_sym_per_frame` is ``True``, we have the following formula
+              to compute `alpha`::
+
+               alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
+                                       alpha(t, u-1) + log_prob(t, u-1).symbol);
+
+                     (t-1, u) ---> (t, u)
+                                  _
+                                  /|
+                                /
+                              /
+                            /
+                     (t-1, u-1)
           reduction:
             Supported values are:
 
@@ -108,6 +139,7 @@ class TransducerLossFunction(torch.autograd.Function):
             target_lengths=target_lengths,
             blank=blank,
             from_log_softmax=from_log_softmax,
+            one_sym_per_frame=one_sym_per_frame,
         )
 
         loss = -1 * scores
@@ -133,6 +165,7 @@ class TransducerLossFunction(torch.autograd.Function):
             None,  # target_lengths
             None,  # blank
             None,  # from_log_softmax
+            None,  # one_sym_per_frame
             None,  # reduction
         )
 
@@ -161,6 +194,7 @@ class TransducerLoss(torch.nn.Module):
         logit_lengths: torch.Tensor,
         target_lengths: torch.Tensor,
         from_log_softmax: bool,
+        one_sym_per_frame: bool = False,
     ) -> torch.Tensor:
         """
         Args:
@@ -229,6 +263,36 @@ class TransducerLoss(torch.nn.Module):
               `nn.Linear` if you need to save memory usage.
               Set it to `True` if you want to manipulate the output of
               `log-softmax` before sending it for loss computations.
+          one_sym_per_frame:
+            If True, it limits the maximum number of symbols per frame to 1.
+            If False, it is equivalent to the standard transducer loss.
+
+            Caution:
+              If `one_sym_per_frame` is ``False``, we have the following formula
+              to compute `alpha`::
+
+              alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
+                                   alpha(t-1, u-1) + log_prob(t-1, u-1).symbol);
+                     (t-1, u) ---> (t, u)
+                                     ^
+                                     |
+                                     |
+                                     |
+                                  (t, u-1)
+
+              If `one_sym_per_frame` is ``True``, we have the following formula
+              to compute `alpha`::
+
+               alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
+                                       alpha(t, u-1) + log_prob(t, u-1).symbol);
+
+                     (t-1, u) ---> (t, u)
+                                  _.
+                                  /|
+                                /
+                              /
+                            /
+                     (t-1, u-1)
         Returns:
           Return a tensor containing the losses. See the documentation above for
           `self.reduction`.
@@ -240,6 +304,7 @@ class TransducerLoss(torch.nn.Module):
             target_lengths,
             self.blank,
             from_log_softmax,
+            one_sym_per_frame,
             self.reduction,
         )
 
@@ -251,6 +316,7 @@ def transducer_loss(
     target_lengths: torch.Tensor,
     blank: int,
     from_log_softmax: bool,
+    one_sym_per_frame: bool = False,
     reduction: str = "mean",
 ) -> torch.Tensor:
     """
@@ -322,6 +388,36 @@ def transducer_loss(
           `nn.Linear` if you need to save memory usage.
           Set it to `True` if you want to manipulate the output of
           `log-softmax` before sending it for loss computations.
+      one_sym_per_frame:
+        If True, it limits the maximum number of symbols per frame to 1.
+        If False, it is equivalent to the standard transducer loss.
+
+        Caution:
+          If `one_sym_per_frame` is ``False``, we have the following formula
+          to compute `alpha`::
+
+          alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
+                               alpha(t-1, u-1) + log_prob(t-1, u-1).symbol);
+                 (t-1, u) ---> (t, u)
+                                 ^
+                                 |
+                                 |
+                                 |
+                              (t, u-1)
+
+          If `one_sym_per_frame` is ``True``, we have the following formula
+          to compute `alpha`::
+
+           alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
+                                   alpha(t, u-1) + log_prob(t, u-1).symbol);
+
+                 (t-1, u) ---> (t, u)
+                              _
+                              /|
+                            /
+                          /
+                        /
+                 (t-1, u-1)
 
       reduction:
         Supported values are:
@@ -341,5 +437,6 @@ def transducer_loss(
         target_lengths,
         blank,
         from_log_softmax,
+        one_sym_per_frame,
         reduction,
     )
