@@ -29,7 +29,9 @@ for the same input.
 
 
 However, `warp-transducer` produces different gradients for CPU and CUDA
-when using the same input. See <https://github.com/HawkAaron/warp-transducer/issues/93>
+when using the same input. See <https://github.com/HawkAaron/warp-transducer/issues/93>.
+I also created a [colab notebook](https://colab.research.google.com/drive/1vMkH8LmiCCOiCo4KTTEcv-NU8_OGn0ie?usp=sharing)
+to reproduce that issue.
 
 This project produces consistent gradient on CPU and CUDA for the same input, just like
 what `torchaudio` is doing. (We borrow the gradient computation formula from `torchaudio`).
