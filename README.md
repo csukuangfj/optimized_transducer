@@ -244,3 +244,9 @@ To run all Python tests, use
 cd optimized_transducer/build
 ctest --output-on-failure
 ```
+
+Alternatively one can "make" all available tests
+
+```
+make -j test
+```
