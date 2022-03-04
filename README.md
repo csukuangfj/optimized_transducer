@@ -11,8 +11,8 @@ It produces same output as [torchaudio](https://github.com/pytorch/audio)
 for the same input, so `optimized_transducer` should be equivalent to
 [torchaudio.functional.rnnt_loss()](https://github.com/pytorch/audio/blob/main/torchaudio/functional/functional.py#L1546).
 
-This project is more memory efficient and potentially faster
-(**TODO:** This needs some benchmarks)
+This project is more memory efficient (See <https://github.com/csukuangfj/transducer-loss-benchmarking>
+for benchmark results)
 
 Also, `torchaudio` accepts only output from `nn.Linear`, but
 we also support output from `log-softmax` (You can set the option
@@ -36,8 +36,8 @@ to reproduce that issue.
 This project produces consistent gradient on CPU and CUDA for the same input, just like
 what `torchaudio` is doing. (We borrow the gradient computation formula from `torchaudio`).
 
-`optimized_transducer` uses less memory than that of `warp-transducer` and is potentially
-faster. (**TODO:** This needs some benchmarks).
+`optimized_transducer` uses less memory than that of `warp-transducer`
+(See <https://github.com/csukuangfj/transducer-loss-benchmarking> for benchmark results).
 
 It also supports a **modified** version of transducer. See [below](#modified-transducer) for what
 the meaning of **modified transducer** is.
