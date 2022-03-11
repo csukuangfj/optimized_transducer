@@ -4,6 +4,10 @@ This project implements the optimization techniques proposed in
 [Improving RNN Transducer Modeling for End-to-End Speech Recognition](https://arxiv.org/abs/1909.12415)
 to reduce the memory consumption for computing transducer loss.
 
+**HINT**: You can find ASR training code using this repo
+in <https://github.com/k2-fsa/icefall>. You can also find
+decoding code in [icefall](https://github.com/k2-fsa/icefall).
+
 ### How does it differ from the RNN-T loss from torchaudio
 
 
