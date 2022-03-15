@@ -95,7 +95,7 @@ class TransducerLossFunction(torch.autograd.Function):
               to compute `alpha`::
 
               alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
-                                   alpha(t-1, u-1) + log_prob(t-1, u-1).symbol);
+                                   alpha(t, u-1) + log_prob(t, u-1).symbol);
                      (t-1, u) ---> (t, u)
                                      ^
                                      |
@@ -107,7 +107,7 @@ class TransducerLossFunction(torch.autograd.Function):
               to compute `alpha`::
 
                alpha(t, u) = log_sum_exp(alpha(t-1, u) + log_prob(t-1, u).blank,
-                                       alpha(t, u-1) + log_prob(t, u-1).symbol);
+                                       alpha(t-1, u-1) + log_prob(t-1, u-1).symbol);
 
                      (t-1, u) ---> (t, u)
                                   _
