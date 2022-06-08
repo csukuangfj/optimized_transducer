@@ -23,20 +23,10 @@ function(download_pybind11)
   set(pybind11_URL  "https://github.com/pybind/pybind11/archive/v2.6.0.tar.gz")
   set(pybind11_HASH "SHA256=90b705137b69ee3b5fc655eaca66d0dc9862ea1759226f7ccd3098425ae69571")
 
-  set(double_quotes "\"")
-  set(dollar "\$")
-  set(semicolon "\;")
-  if(NOT WIN32)
-    FetchContent_Declare(pybind11
-      URL               ${pybind11_URL}
-      URL_HASH          ${pybind11_HASH}
-    )
-  else()
-    FetchContent_Declare(pybind11
-      URL               ${pybind11_URL}
-      URL_HASH          ${pybind11_HASH}
-    )
-  endif()
+  FetchContent_Declare(pybind11
+    URL               ${pybind11_URL}
+    URL_HASH          ${pybind11_HASH}
+  )
 
   FetchContent_GetProperties(pybind11)
   if(NOT pybind11_POPULATED)
