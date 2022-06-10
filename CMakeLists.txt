@@ -65,8 +65,13 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 set(CMAKE_SKIP_BUILD_RPATH FALSE)
 set(BUILD_RPATH_USE_ORIGIN TRUE)
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-set(CMAKE_INSTALL_RPATH "$ORIGIN")
-set(CMAKE_BUILD_RPATH "$ORIGIN")
+if(NOT APPLE)
+  set(CMAKE_INSTALL_RPATH "$ORIGIN")
+  set(CMAKE_BUILD_RPATH "$ORIGIN")
+else()
+  set(CMAKE_INSTALL_RPATH "@loader_path")
+  set(CMAKE_BUILD_RPATH "@loader_path")
+endif()
 
 if(OT_WITH_CUDA)
   add_definitions(-DOT_WITH_CUDA)
@@ -128,6 +133,12 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 include(pybind11)
 include(torch)
+
+# TORCH_VERSION is defined in cmake/torch.cmake
+configure_file(
+  ${CMAKE_SOURCE_DIR}/optimized_transducer/python/optimized_transducer/torch_version.py.in
+  ${CMAKE_SOURCE_DIR}/optimized_transducer/python/optimized_transducer/torch_version.py @ONLY
+)
 
 if(OT_BUILD_TESTS)
   enable_testing()
