@@ -75,6 +75,14 @@ class BuildExtension(build_ext):
             print(f"Copying {so} to {self.build_lib}/")
             shutil.copy(f"{so}", f"{self.build_lib}/")
 
+        print(
+            f"Copying {ot_dir}/optimized_transducer/python/optimized_transducer/torch_version.py to {self.build_lib}/optimized_transducer"  # noqa
+        )
+        shutil.copy(
+            f"{ot_dir}/optimized_transducer/python/optimized_transducer/torch_version.py",
+            f"{self.build_lib}/optimized_transducer",
+        )
+
 
 def read_long_description():
     with open("README.md", encoding="utf8") as f:
@@ -93,9 +101,7 @@ def get_package_version():
 
 package_name = "optimized_transducer"
 
-with open(
-    "optimized_transducer/python/optimized_transducer/__init__.py", "a"
-) as f:
+with open("optimized_transducer/python/optimized_transducer/__init__.py", "a") as f:
     f.write(f"__version__ = '{get_package_version()}'\n")
 
 setuptools.setup(
@@ -120,3 +126,14 @@ setuptools.setup(
     ],
     license="Apache licensed, as found in the LICENSE file",
 )
+
+# remove the line __version__ from optimized_transducer/python/optimized_transducer/__init__.py
+with open("optimized_transducer/python/optimized_transducer/__init__.py", "r") as f:
+    lines = f.readlines()
+
+with open("optimized_transducer/python/optimized_transducer/__init__.py", "w") as f:
+    for line in lines:
+        if "__version__" in line and "torch" not in line:
+            # skip __version__ = "x.x.x"
+            continue
+        f.write(line)
